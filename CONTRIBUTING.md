@@ -1,4 +1,4 @@
-# Contributing to telos-interp
+# Contributing to telos-reveng
 
 ## Prerequisites
 
