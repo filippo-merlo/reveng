@@ -1,7 +1,7 @@
 import random
+import time
 from enum import IntEnum
 
-import time
 import pygame
 from gymnasium import spaces
 from minigrid.core.grid import Grid
@@ -19,16 +19,19 @@ class Simple2DNavigationEnv(MiniGridEnv):
         DOWN = 3
 
     def __init__(
-            self,
-            size=10,
-            agent_start_dir: int | None = None,
-            agent_start_pos: tuple[int, int] | None = None,
-            goal_pos: tuple[int, int] | None = None,
-            max_steps: int | None = None,
-            **kwargs,
+        self,
+        size=10,
+        agent_start_dir: int | None = None,
+        agent_start_pos: tuple[int, int] | None = None,
+        goal_pos: tuple[int, int] | None = None,
+        max_steps: int | None = None,
+        **kwargs,
     ):
         if agent_start_pos is None:
-            self.agent_start_pos = (random.randint(1, size - 2), random.randint(1, size - 2))
+            self.agent_start_pos = (
+                random.randint(1, size - 2),
+                random.randint(1, size - 2),
+            )
         else:
             self.agent_start_pos = agent_start_pos
 
@@ -40,14 +43,17 @@ class Simple2DNavigationEnv(MiniGridEnv):
         if goal_pos is None:
             self.goal_pos = (random.randint(1, size - 2), random.randint(1, size - 2))
             while self.goal_pos == self.agent_start_pos:
-                self.goal_pos = (random.randint(1, size - 2), random.randint(1, size - 2))
+                self.goal_pos = (
+                    random.randint(1, size - 2),
+                    random.randint(1, size - 2),
+                )
         else:
             self.goal_pos = goal_pos
 
         mission_space = MissionSpace(mission_func=self._gen_mission)
 
         if max_steps is None:
-            max_steps = 4 * size ** 2
+            max_steps = 4 * size**2
 
         super().__init__(
             mission_space=mission_space,
@@ -74,7 +80,9 @@ class Simple2DNavigationEnv(MiniGridEnv):
 
     def _gen_grid(self, width, height):
         self.grid = Grid(width, height)
-        self.grid.wall_rect(0, 0, width, height) # To avoid terminating the game when stepping outside the grid
+        self.grid.wall_rect(
+            0, 0, width, height
+        )  # To avoid terminating the game when stepping outside the grid
         self.put_obj(Goal(), *self.goal_pos)
         self.agent_pos = self.agent_start_pos
         self.agent_dir = self.agent_start_dir
@@ -136,7 +144,9 @@ def manual_control(size):
                 if event.key in key_to_action:
                     action = key_to_action[event.key]
                     obs, reward, terminated, truncated, info = env.step(action)
-                    print(f"Step: {env.step_count}, Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}")
+                    print(
+                        f"Step: {env.step_count}, Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}"
+                    )
 
                     if terminated or truncated:
                         print("Episode finished. Resetting.")
@@ -188,5 +198,3 @@ def run_random_episodes(episodes=5, size=10):
         time.sleep(1.5)  # Pause before the next episode
 
     env.close()
-
-

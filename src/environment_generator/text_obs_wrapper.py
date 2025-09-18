@@ -1,7 +1,9 @@
-import gymnasium
-from gymnasium.spaces import Text
-from custom_minigrid import Simple2DNavigationEnv
 import time
+
+import gymnasium
+from custom_minigrid import Simple2DNavigationEnv
+from gymnasium.spaces import Text
+
 
 class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
     def __init__(self, env):
@@ -11,8 +13,7 @@ class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
         self.observation_space = Text(max_length=4096, charset="utf-8")
 
         # Map agent's direction to a character
-        self.dir_map = {0: '>', 1: 'v', 2: '<', 3: '^'}
-
+        self.dir_map = {0: ">", 1: "v", 2: "<", 3: "^"}
 
     def observation(self, obs):
         """
@@ -35,24 +36,20 @@ class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
 
                 cell = env.grid.get(i, j)
                 if cell is None:
-                    row_str += ' '  # Empty space
-                elif cell.type == 'wall':
-                    row_str += '#'
-                elif cell.type == 'goal':
-                    row_str += 'G'
+                    row_str += " "  # Empty space
+                elif cell.type == "wall":
+                    row_str += "#"
+                elif cell.type == "goal":
+                    row_str += "G"
                 else:
-                    row_str += '?'
+                    row_str += "?"
             grid_repr.append(row_str)
 
         grid_str = "\n".join(grid_repr)
 
         # 3. Add a simplified legend
         legend = (
-            "\n--- Legend ---\n"
-            "> v < ^ : Agent\n"
-            "# : Wall\n"
-            "G : Goal\n"
-            "---------------\n"
+            "\n--- Legend ---\n> v < ^ : Agent\n# : Wall\nG : Goal\n---------------\n"
         )
 
         # Combine the strings to create the full observation

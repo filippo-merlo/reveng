@@ -3,16 +3,11 @@
 ## Prerequisites
 
 - Python 3.10 or higher (recommended: 3.12)
-- [UV package manager](https://docs.astral.sh/uv/) (install with `make uv-download`, activate environment with `source .venv/bin/activate`)
+- [uv package manager](https://docs.astral.sh/uv/) (install via the official installer, e.g. `curl -LsSf https://astral.sh/uv/install.sh | sh` and follow the prompts)
 
 ## Development Setup
 
-### Option 1: Using UV (Recommended)
-
-1. **Install UV package manager**:
-   ```bash
-   make uv-download
-   ```
+1. **Install uv** following the [installation guide](https://docs.astral.sh/uv/getting-started/installation/).
 
 2. **Clone the repository**:
    ```bash
@@ -20,46 +15,94 @@
    cd reveng
    ```
 
-3. **Install development dependencies**:
+3. **Create the virtual environment and install project dependencies**:
    ```bash
-   source .venv/bin/activate
-   make install-dev
+   uv sync
    ```
 
    This will:
-   - Activate the UV virtual environment
-   - Install all development dependencies
-   - Set up pre-commit hooks
-   - Install the package in editable mode
+   - Resolve dependencies declared in `pyproject.toml` / `uv.lock`
+   - Create a `.venv` folder at the project root (managed by uv)
+
+4. **Activate the environment (optional)**:
+   ```bash
+   source .venv/bin/activate
+   ```
+
+5. **Install pre-commit hooks**:
+   ```bash
+   uvx pre-commit install
+   ```
+
+`uvx` is shorthand for `uv tool run`; it installs and caches development tools without modifying the project's dependency lists.
+
+## Editor Configuration
+
+### VS Code Setup with Ruff
+
+To configure VS Code to format your Python code on save using Ruff via `uvx ruff format`:
+
+1. **Install Ruff and uvx**:
+   ```bash
+   uv tool install ruff@latest
+   ```
+
+2. **Install the Ruff VS Code Extension**:
+   - Open VS Code
+   - Go to Extensions (Ctrl+Shift+X)
+   - Search for "Ruff" and install the extension by `charliermarsh`
+
+3. **Configure VS Code Settings**:
+   Open your VS Code settings (Ctrl+Shift+P → "Preferences: Open Settings (JSON)") and add:
+   ```json
+   {
+     "[python]": {
+       "editor.formatOnSave": true,
+       "editor.defaultFormatter": "charliermarsh.ruff",
+       "editor.codeActionsOnSave": {
+         "source.fixAll.ruff": "always",
+         "source.organizeImports.ruff": "always"
+       }
+     },
+     "ruff.path": ["uvx", "ruff"]
+   }
+   ```
+
+This configuration will automatically format your Python code and organize imports every time you save a file, using Ruff via `uvx ruff format`.
 
 ## Project Structure
 
 ```
-├── src/          # Main package source code
-├── tests/                 # Test files
-├── pyproject.toml         # Project configuration and dependencies
-├── Makefile              # Development commands
-├── .pre-commit-config.yaml # Pre-commit hooks configuration
-├── requirements.txt       # User dependencies
-└── requirements-dev.txt   # Development dependencies
+├── src/                     # Main package source code
+├── tests/                   # Test files
+├── pyproject.toml           # Project metadata and dependencies
+├── uv.lock                  # Locked dependency resolution managed by uv
+├── pre-commit-config.yaml   # Pre-commit hooks configuration
+├── Makefile                 # Legacy helper targets (optional)
+└── README.md                # Project overview
 ```
 
 ## Development Workflow
 
-### Available Commands
+### Common Commands
 
-The project uses a Makefile for common development tasks:
+Use `uv sync` to keep the local environment in sync with the lockfile and `uvx` for project tooling:
 
 ```bash
-make help           # Show all available commands
-make install        # Install production dependencies only
-make install-dev    # Install development dependencies and setup
-make test           # Run all tests with pytest
-make check-style    # Check code style without fixing
-make fix-style      # Fix code style issues automatically
-make clean          # Clean up temporary files
-make update-deps    # Update requirements files from pyproject.toml
+uv sync --locked            # Install project dependencies exactly as pinned in uv.lock
+uvx pytest -n auto -vv      # Run the full test suite
+uvx ruff check .            # Run linting without fixing
+uvx ruff format .           # Apply formatting
+uvx pre-commit run --all-files  # Execute every pre-commit hook locally
+uv run python -m reveng      # Execute the package entry point (example)
 ```
+
+### Running Scripts with uv
+
+- `uv run python path/to/script.py`: Run a script that lives inside the repository using the project environment.
+- `uv run -m package.module`: Execute a module as if with `python -m`.
+- `uv tool run <command>` / `uvx <command>`: Invoke ad-hoc tooling (for example, `uvx rich-cli tree`).
+- Add `--` to forward arguments to the script, e.g. `uv run python scripts/train.py --epochs 10`.
 
 ### Code Quality Tools
 
@@ -73,13 +116,13 @@ The project uses several tools to maintain code quality:
 
 Run tests using:
 ```bash
-make test
+uvx pytest -n auto -vv
 ```
 
-This runs pytest with:
+This runs `pytest` with:
 - Parallel execution (`-n auto`)
 - Verbose output (`-vv`)
-- Configuration from `pyproject.toml`
+- (Optional) configuration from `pyproject.toml` if present
 
 Test markers available:
 - `slow`: For time-intensive tests
@@ -93,14 +136,15 @@ The project follows these style guidelines:
 - Google-style docstrings
 - Import sorting with isort
 
-Before committing, always run:
+Before committing, run:
 ```bash
-make fix-style
+uvx ruff format .
+uvx ruff check .
 ```
 
 ### Pre-commit Hooks
 
-Pre-commit hooks are automatically installed with `make install-dev`. They will:
+Install the hooks with `uvx pre-commit install`. They will:
 - Check and fix trailing whitespace
 - Validate TOML files
 - Check for merge conflicts
@@ -121,12 +165,12 @@ Pre-commit hooks are automatically installed with `make install-dev`. They will:
 
 4. **Run the test suite**:
    ```bash
-   make test
+   uvx pytest -n auto -vv
    ```
 
 5. **Check code style**:
    ```bash
-   make check-style
+   uvx ruff check .
    ```
 
 6. **Commit your changes**:
@@ -152,16 +196,50 @@ Pre-commit hooks are automatically installed with `make install-dev`. They will:
 - `lint`: For development tools (`pytest`, `ruff`, `pre-commit`)
 - `notebook`: For Jupyter notebook support (`ipykernel`, `ipywidgets`)
 
+### Adding New Dependencies
+
+1. Activate the environment if needed: `source .venv/bin/activate`.
+2. Add the package with uv:
+   ```bash
+   uv add <package-name>
+   ```
+   Use `--dev` to add development-only dependencies, and `--group <name>` to target an optional dependency group.
+3. Regenerate the lockfile to capture the new requirement:
+   ```bash
+   uv lock
+   ```
+4. Re-sync the environment so the dependencies are installed locally:
+   ```bash
+   uv sync
+   ```
+5. Commit the updated `pyproject.toml` and `uv.lock` together.
+
 ## Package Management
 
 To update dependencies:
 
-1. **Modify `pyproject.toml`** with new dependencies
-2. **Update requirement files**:
+1. **Modify `pyproject.toml`** with new dependencies or version constraints
+2. **Refresh the lockfile**:
    ```bash
-   make update-deps
+   uv lock --upgrade
    ```
-3. **Install updated dependencies**:
+   Use `uv lock --upgrade-package <name>` for targeted upgrades.
+3. **Install the updated dependencies locally**:
    ```bash
-   make install-dev
+   uv sync
    ```
+4. Commit both `pyproject.toml` and `uv.lock`.
+
+## Makefile
+
+The repository retains a Makefile with convenience wrappers around the `uv` commands above. These are optional but can speed up repeated tasks:
+
+- `make uv-download`: Download and install uv, then create the `.venv` environment.
+- `make install`: Activate the environment and install runtime dependencies (no extras) via `uv pip`.
+- `make install-dev`: Install development extras, refresh pre-commit hooks, and install the package in editable mode.
+- `make test`: Run the pytest suite using the virtual environment's interpreter.
+- `make check-style` / `make fix-style`: Run Ruff in check or fix mode through the project interpreter.
+- `make clean`: Remove build artifacts and Python bytecode caches.
+- `make update-deps`: Rebuild the requirements export files if you need them (these are generated from `pyproject.toml`).
+
+All Makefile commands assume the `.venv` created by `uv sync` and `uv` itself are already available.
