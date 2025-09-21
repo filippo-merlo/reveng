@@ -31,12 +31,13 @@ class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
             for i in range(env.width):
                 # Check for agent position first
                 if i == env.agent_pos[0] and j == env.agent_pos[1]:
-                    row_str += self.dir_map[env.agent_dir]
+                    # row_str += self.dir_map[env.agent_dir] # Use this if the direction is not discarded
+                    row_str += "A"
                     continue
 
                 cell = env.grid.get(i, j)
                 if cell is None:
-                    row_str += " "  # Empty space
+                    row_str += "_"
                 elif cell.type == "wall":
                     row_str += "#"
                 elif cell.type == "goal":
@@ -47,10 +48,14 @@ class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
 
         grid_str = "\n".join(grid_repr)
 
-        # 3. Add a simplified legend
+        # 3. Add the legend
+        # legend = (
+        #     "\n--- Legend ---\n> v < ^ : Agent\n# : Wall\nG : Goal\n---------------\n"
+        # )
         legend = (
-            "\n--- Legend ---\n> v < ^ : Agent\n# : Wall\nG : Goal\n---------------\n"
+            "\n--- Legend ---\n A : Agent\n# : Wall\nG : Goal\n---------------\n"
         )
+
 
         # Combine the strings to create the full observation
         full_observation = mission + grid_str + legend
