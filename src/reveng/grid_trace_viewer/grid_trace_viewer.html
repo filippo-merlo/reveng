@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Grid Navigation Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .file-input-container {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .file-input-label {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-block;
+            transition: all 0.3s ease;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            font-size: 16px;
+            min-width: 80px;
+            text-align: center;
+        }
+        
+        .file-input-label:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .control-separator {
+            width: 2px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            margin-top: 8px;
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        .visualization-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 30px;
+            margin: 20px 0;
+            padding-left: 20px;
+            padding-right: 20px;
+        }
+        
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+        }
+        
+        #gridCanvas {
+            border-radius: 10px;
+        }
+        
+        .action-bars {
+            width: 100%;
+            max-width: 600px;
+            transition: opacity 0.3s ease;
+        }
+
+        .state-tracker-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .action-bars h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .bars-container {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-end;
+            height: 200px;
+            gap: 20px;
+        }
+        
+        .bar-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .bar {
+            width: 100%;
+            max-width: 80px;
+            background: linear-gradient(to top, #4CAF50, #8BC34A);
+            border-radius: 5px 5px 0 0;
+            transition: height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 8px;
+            min-height: 5px;
+        }
+        
+        .bar-value {
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .bar-label {
+            font-weight: bold;
+            font-size: 1em;
+            color: rgba(255, 255, 255, 0.95);
+            padding-top: 10px;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            min-width: 80px;
+        }
+        
+        button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        button.active {
+            background: rgba(76, 175, 80, 0.5);
+            border-color: #4CAF50;
+        }
+        
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 15px;
+            border-radius: 8px;
+        }
+        
+        #speedSlider {
+            width: 100px;
+            cursor: pointer;
+        }
+        
+        #info {
+            text-align: center;
+            margin-bottom: 60px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .legend-color {
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            text-align: center;
+            line-height: 25px;
+        }
+        
+        .placeholder-message {
+            text-align: center;
+            padding: 40px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.2em;
+
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Telos 2D Grid Navigation Viewer</h2>
+        <div class="visualization-container">
+            <div class="canvas-container">
+                <canvas id="gridCanvas"></canvas>
+            </div>
+            <div class="state-tracker-container">
+                <div id="info" style="display: none;">
+                    <div id="stepInfo"></div>
+                </div>
+                <div id="actionBars" class="action-bars" style="display: none;">
+                    <div class="bars-container">
+                        <div class="bar-wrapper">
+                            <div class="bar" id="barUp">
+                                <span class="bar-value"></span>
+                            </div>
+                            <span class="bar-label">UP</span>
+                        </div>
+                        <div class="bar-wrapper">
+                            <div class="bar" id="barDown">
+                                <span class="bar-value"></span>
+                            </div>
+                            <span class="bar-label">DOWN</span>
+                        </div>
+                        <div class="bar-wrapper">
+                            <div class="bar" id="barLeft">
+                                <span class="bar-value"></span>
+                            </div>
+                            <span class="bar-label">LEFT</span>
+                        </div>
+                        <div class="bar-wrapper">
+                            <div class="bar" id="barRight">
+                                <span class="bar-value"></span>
+                            </div>
+                            <span class="bar-label">RIGHT</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="placeholderMessage" class="placeholder-message">
+            Load a JSON file to start the animation
+        </div>
+        
+        <div class="controls">
+            <label for="fileInput" class="file-input-label">
+                📁 Load
+            </label>
+            <input type="file" id="fileInput" accept=".json" style="display: none;">
+            <div class="control-separator"></div>
+            <button id="playPauseBtn">▶️ Play</button>
+            <button id="backStepBtn">⏮️ Back</button>
+            <button id="stepBtn">⏭️ Step</button>
+            <button id="resetBtn">🔄 Reset</button>
+            <div class="speed-control">
+                <label>Speed:</label>
+                <input type="range" id="speedSlider" min="100" max="2000" value="1000" step="100">
+                <span id="speedValue">1.0s</span>
+            </div>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #666;"></div>
+                <span>Wall</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #444;"></div>
+                <span>Unseen</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #E8F5E9;"></div>
+                <span>Open Space</span>
+            </div>
+            <div class="control-separator"></div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #2196F3;">S</div>
+                <span>Start</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #F44336;">A</div>
+                <span>Agent</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #FF9800;"></div>
+                <span>Path</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4CAF50;">G</div>
+                <span>Goal</span>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('gridCanvas');
+        const ctx = canvas.getContext('2d');
+        const fileInput = document.getElementById('fileInput');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const backStepBtn = document.getElementById('backStepBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        const info = document.getElementById('info');
+        const stepInfo = document.getElementById('stepInfo');
+        const actionBars = document.getElementById('actionBars');
+        const placeholderMessage = document.getElementById('placeholderMessage');
+        
+        let animationData = null;
+        let currentStepIndex = 0;
+        let isPlaying = false;
+        let animationTimeout = null;
+        
+        const colors = {
+            '#': '#666666',  // Wall
+            '~': '#444444',  // Unseen
+            '.': '#E8F5E9',  // Open space
+            'S': '#2196F3',  // Start
+            'P': '#FF9800',  // Path
+            'G': '#4CAF50',  // Goal
+            'A': '#F44336'   // Agent
+        };
+        
+        speedSlider.addEventListener('input', (e) => {
+            speedValue.textContent = (e.target.value / 1000).toFixed(1) + 's';
+        });
+        
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    animationData = data.steps;
+                    currentStepIndex = 0;
+                    resetAnimation();
+                    displayStep(0);
+                    placeholderMessage.style.display = 'none';
+                    info.style.display = 'block';
+                    canvas.style.display = 'block';
+                    actionBars.style.display = 'block';
+                } catch (error) {
+                    alert('Error loading JSON file: ' + error.message);
+                }
+            }
+        });
+        
+        function parseGrid(stateString) {
+            return stateString.split('\n').map(row => row.split(''));
+        }
+        
+        function drawGrid(stateString) {
+            const grid = parseGrid(stateString);
+            const cellSize = 30;
+            const padding = 20;
+            
+            canvas.width = grid[0].length * cellSize + padding * 2;
+            canvas.height = grid.length * cellSize + padding * 2;
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            grid.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    const xPos = x * cellSize + padding;
+                    const yPos = y * cellSize + padding;
+                    
+                    // Draw cell background
+                    ctx.fillStyle = colors[cell] || '#CCCCCC';
+                    ctx.fillRect(xPos, yPos, cellSize, cellSize);
+                    
+                    // Draw grid lines
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                    ctx.strokeRect(xPos, yPos, cellSize, cellSize);
+                    
+                    // Draw special symbols
+                    if (cell === 'A' || cell === 'S' || cell === 'G') {
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(cell, xPos + cellSize/2, yPos + cellSize/2);
+                    }
+                });
+            });
+        }
+        
+        function updateActionProbabilities(actions) {
+            if (!actions) {
+                // Hide bars if no actions
+                actionBars.style.opacity = '0.3';
+                return;
+            }
+            
+            actionBars.style.opacity = '1';
+            const barHeight = 250; // Maximum bar height in pixels
+            const maxProb = Math.max(...Object.values(actions)); // For coloring the highest bar
+            
+            ['UP', 'DOWN', 'LEFT', 'RIGHT'].forEach(action => {
+                const bar = document.getElementById(`bar${action.charAt(0) + action.slice(1).toLowerCase()}`);
+                const value = actions[action] || 0;
+                // Scale height based on fixed 0-100% scale
+                const height = Math.max(5, value * barHeight); // Minimum height of 5px
+                
+                bar.style.height = height + 'px';
+                bar.querySelector('.bar-value').textContent = (value * 100).toFixed(1) + '%';
+                
+                // Color based on probability
+                if (value === maxProb && value > 0) {
+                    bar.style.background = 'linear-gradient(to top, #4CAF50, #8BC34A)';
+                } else if (value > 0.2) {
+                    bar.style.background = 'linear-gradient(to top, #FFC107, #FFD54F)';
+                } else {
+                    bar.style.background = 'linear-gradient(to top, #F44336, #EF5350)';
+                }
+            });
+        }
+        
+        function displayStep(stepIndex) {
+            if (!animationData || stepIndex >= animationData.length) return;
+            
+            const step = animationData[stepIndex];
+            drawGrid(step.state);
+            updateActionProbabilities(step.actions);
+            updateInfo();
+        }
+        
+        function animate() {
+            if (!isPlaying || !animationData) {
+                return;
+            }
+            
+            if (currentStepIndex >= animationData.length - 1) {
+                stopAnimation();
+                return;
+            }
+            
+            currentStepIndex++;
+            displayStep(currentStepIndex);
+            
+            const delay = parseInt(speedSlider.value);
+            animationTimeout = setTimeout(animate, delay);
+        }
+        
+        function step() {
+            if (!animationData || currentStepIndex >= animationData.length - 1) return;
+            
+            stopAnimation();
+            currentStepIndex++;
+            displayStep(currentStepIndex);
+        }
+
+        function backStep() {
+            if (!animationData || currentStepIndex <= 0) return;
+            
+            stopAnimation();
+            currentStepIndex--;
+            displayStep(currentStepIndex);
+        }
+        
+        function startAnimation() {
+            if (!animationData || animationData.length === 0) return;
+            
+            isPlaying = true;
+            playPauseBtn.textContent = '⏸️ Pause';
+            playPauseBtn.classList.add('active');
+            animate();
+        }
+        
+        function stopAnimation() {
+            isPlaying = false;
+            playPauseBtn.textContent = '▶️ Play';
+            playPauseBtn.classList.remove('active');
+            if (animationTimeout) {
+                clearTimeout(animationTimeout);
+                animationTimeout = null;
+            }
+        }
+        
+        function resetAnimation() {
+            stopAnimation();
+            currentStepIndex = 0;
+            if (animationData && animationData.length > 0) {
+                displayStep(0);
+            }
+        }
+        
+        function updateInfo() {
+            if (!animationData) {
+                stepInfo.innerHTML = 'No data loaded';
+            } else {
+                stepInfo.innerHTML = `Step: ${currentStepIndex + 1} / ${animationData.length}`;
+            }
+        }
+        
+        playPauseBtn.addEventListener('click', () => {
+            if (!animationData) return;
+            
+            if (isPlaying) {
+                stopAnimation();
+            } else {
+                if (currentStepIndex >= animationData.length - 1) {
+                    resetAnimation();
+                }
+                startAnimation();
+            }
+        });
+        
+        backStepBtn.addEventListener('click', backStep);
+        stepBtn.addEventListener('click', step);
+        resetBtn.addEventListener('click', resetAnimation);
+        
+        // Initial canvas setup
+        canvas.style.display = 'none';
+    </script>
+</body>
+</html>
