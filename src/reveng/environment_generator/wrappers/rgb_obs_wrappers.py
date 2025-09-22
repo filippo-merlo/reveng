@@ -1,6 +1,6 @@
+import numpy as np
 from gymnasium import spaces
 from gymnasium.core import ObservationWrapper
-import numpy as np
 
 
 class OmnidirectionalFogOfWarRGBImgObsWrapper(ObservationWrapper):

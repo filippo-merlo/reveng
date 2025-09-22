@@ -49,9 +49,7 @@ class FullObservabilityTextWrapper(gymnasium.ObservationWrapper):
         # legend = (
         #     "\n--- Legend ---\n> v < ^ : Agent\n# : Wall\nG : Goal\n---------------\n"
         # )
-        legend = (
-            "\n--- Legend ---\n A : Agent\n# : Wall\nG : Goal\n---------------\n"
-        )
+        legend = "\n--- Legend ---\n A : Agent\n# : Wall\nG : Goal\n---------------\n"
 
         # Combine the strings to create the full observation
         full_observation = mission + grid_str + legend

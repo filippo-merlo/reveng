@@ -1,23 +1,25 @@
-from custom_minigrid import Simple2DNavigationEnv
-from minigrid.wrappers import RGBImgObsWrapper, RGBImgPartialObsWrapper
-import time
-import pygame
-import matplotlib.pyplot as plt
 import os
+import time
+
+import matplotlib.pyplot as plt
+import pygame
+from minigrid.wrappers import RGBImgObsWrapper, RGBImgPartialObsWrapper
+
+from custom_minigrid import Simple2DNavigationEnv
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
 from wrappers.text_obs_wrapper import FullObservabilityTextWrapper
 
 
 class ObsWrapperRegistry:
     wrappers = {
-        'image': {
-            'full': RGBImgObsWrapper,
-            'partial': OmnidirectionalFogOfWarRGBImgObsWrapper
+        "image": {
+            "full": RGBImgObsWrapper,
+            "partial": OmnidirectionalFogOfWarRGBImgObsWrapper,
         },
-        'text': {
-            'full': FullObservabilityTextWrapper,
-            'partial': None # TODO: to be implemented
-        }
+        "text": {
+            "full": FullObservabilityTextWrapper,
+            "partial": None,  # TODO: to be implemented
+        },
     }
 
     @staticmethod
@@ -25,9 +27,13 @@ class ObsWrapperRegistry:
         return ObsWrapperRegistry.wrappers.get(modality, {}).get(observability)
 
 
-
-
-def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observability: str = "full", save_images=False):
+def run_random_episodes(
+    episodes=5,
+    size=10,
+    obs_modality: str = "image",
+    observability: str = "full",
+    save_images=False,
+):
     """
     Runs episodes with a random agent
     """
@@ -54,15 +60,15 @@ def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observ
             # Take the action
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward
-            
+
             # Save observation images if requested
-            if save_images and obs_modality == 'image':
+            if save_images and obs_modality == "image":
                 # Create images directory if it doesn't exist
-                if not os.path.exists('images'):
-                    os.makedirs('images')
-                    
+                if not os.path.exists("images"):
+                    os.makedirs("images")
+
                 plt.figure(figsize=(8, 8))
-                plt.imshow(obs['image'])
+                plt.imshow(obs["image"])
                 plt.title(f"Episode {i+1}, Step {base_env.step_count}")
                 plt.savefig(f"images/episode_{i+1}_step_{base_env.step_count}.png")
                 plt.close()
@@ -86,7 +92,9 @@ def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observ
     env.close()
 
 
-def manual_control(size=10, obs_modality: str = "image", observability: str = "full", save_images=True):
+def manual_control(
+    size=10, obs_modality: str = "image", observability: str = "full", save_images=True
+):
     base_env = Simple2DNavigationEnv(render_mode="human", size=size)
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
     env = obs_wrapper(base_env)
@@ -112,13 +120,13 @@ def manual_control(size=10, obs_modality: str = "image", observability: str = "f
                     obs, reward, terminated, truncated, info = env.step(action)
 
                     # Save observation images if requested
-                    if save_images and obs_modality == 'image':
+                    if save_images and obs_modality == "image":
                         # Create images directory if it doesn't exist
-                        if not os.path.exists('images'):
-                            os.makedirs('images')
-                            
+                        if not os.path.exists("images"):
+                            os.makedirs("images")
+
                         plt.figure(figsize=(8, 8))
-                        plt.imshow(obs['image'])
+                        plt.imshow(obs["image"])
                         plt.title(f"Step {base_env.step_count}")
                         plt.savefig(f"images/{base_env.step_count}.png")
                         plt.close()

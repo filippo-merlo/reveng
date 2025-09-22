@@ -1,6 +1,6 @@
 import argparse
 
-from utils import run_random_episodes, manual_control
+from utils import manual_control, run_random_episodes
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -51,11 +51,11 @@ if __name__ == "__main__":
             f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         run_random_episodes(
-            episodes=args.episodes, 
-            size=args.size, 
-            obs_modality=args.obs_modality, 
+            episodes=args.episodes,
+            size=args.size,
+            obs_modality=args.obs_modality,
             observability=args.observability,
-            save_images=args.save_images
+            save_images=args.save_images,
         )
     elif args.mode == "manual":
         print(
@@ -63,8 +63,8 @@ if __name__ == "__main__":
             f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         manual_control(
-            size=args.size, 
-            obs_modality=args.obs_modality, 
+            size=args.size,
+            obs_modality=args.obs_modality,
             observability=args.observability,
-            save_images=args.save_images
+            save_images=args.save_images,
         )
