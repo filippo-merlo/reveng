@@ -3,6 +3,7 @@ from minigrid.wrappers import RGBImgObsWrapper, RGBImgPartialObsWrapper
 import time
 import pygame
 import matplotlib.pyplot as plt
+import os
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
 from wrappers.text_obs_wrapper import FullObservabilityTextWrapper
 
@@ -26,7 +27,7 @@ class ObsWrapperRegistry:
 
 
 
-def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observability: str = "full"):
+def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observability: str = "full", save_images=False):
     """
     Runs episodes with a random agent
     """
@@ -53,6 +54,18 @@ def run_random_episodes(episodes=5, size=10, obs_modality: str = "image", observ
             # Take the action
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward
+            
+            # Save observation images if requested
+            if save_images and obs_modality == 'image':
+                # Create images directory if it doesn't exist
+                if not os.path.exists('images'):
+                    os.makedirs('images')
+                    
+                plt.figure(figsize=(8, 8))
+                plt.imshow(obs['image'])
+                plt.title(f"Episode {i+1}, Step {base_env.step_count}")
+                plt.savefig(f"images/episode_{i+1}_step_{base_env.step_count}.png")
+                plt.close()
 
             # A small delay to make the simulation watchable
             time.sleep(0.1)
@@ -97,10 +110,19 @@ def manual_control(size=10, obs_modality: str = "image", observability: str = "f
                 if event.key in key_to_action:
                     action = key_to_action[event.key]
                     obs, reward, terminated, truncated, info = env.step(action)
+
+                    # Save observation images if requested
                     if save_images and obs_modality == 'image':
+                        # Create images directory if it doesn't exist
+                        if not os.path.exists('images'):
+                            os.makedirs('images')
+                            
+                        plt.figure(figsize=(8, 8))
                         plt.imshow(obs['image'])
+                        plt.title(f"Step {base_env.step_count}")
                         plt.savefig(f"images/{base_env.step_count}.png")
                         plt.close()
+
                     print(
                         f"Step: {base_env.step_count}, Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}"
                     )
