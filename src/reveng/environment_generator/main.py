@@ -1,6 +1,6 @@
 import argparse
 
-from custom_minigrid import manual_control, run_random_episodes
+from utils import manual_control, run_random_episodes
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -9,7 +9,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["random", "manual"],
-        default="random",
+        default="manual",
         help="The mode to run the simulation in: 'random' for random actions, 'manual' for user control.",
     )
     parser.add_argument(
@@ -23,16 +23,48 @@ if __name__ == "__main__":
         "-s",
         "--size",
         type=int,
-        default=10,
+        default=20,
         help="The height and width of the grid for the environment. (Default: 10)",
+    )
+    parser.add_argument(
+        "--obs-modality",
+        choices=["image", "text"],
+        default="image",
+        help="Observation modality: 'image' for RGB images, 'text' for text descriptions. (Default: image)",
+    )
+    parser.add_argument(
+        "--observability",
+        choices=["full", "partial"],
+        default="full",
+        help="Observability level: 'full' for complete environment visibility, 'partial' for limited visibility. (Default: full)",
+    )
+    parser.add_argument(
+        "--save-images",
+        action="store_true",
+        help="Save observation images during execution (only works with image modality)",
     )
     args = parser.parse_args()
 
     if args.mode == "random":
         print(
             f"Running in random mode for {args.episodes} episodes with a grid size of {args.size}x{args.size}."
+            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
-        run_random_episodes(episodes=args.episodes, size=args.size)
+        run_random_episodes(
+            episodes=args.episodes,
+            size=args.size,
+            obs_modality=args.obs_modality,
+            observability=args.observability,
+            save_images=args.save_images,
+        )
     elif args.mode == "manual":
-        print(f"Running in manual mode with a grid size of {args.size}x{args.size}.")
-        manual_control(size=args.size)
+        print(
+            f"Running in manual mode with a grid size of {args.size}x{args.size}."
+            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
+        )
+        manual_control(
+            size=args.size,
+            obs_modality=args.obs_modality,
+            observability=args.observability,
+            save_images=args.save_images,
+        )
