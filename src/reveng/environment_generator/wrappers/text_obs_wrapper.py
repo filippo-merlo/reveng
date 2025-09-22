@@ -1,11 +1,8 @@
-import time
-
 import gymnasium
-from custom_minigrid import Simple2DNavigationEnv
 from gymnasium.spaces import Text
 
 
-class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
+class FullObservabilityTextWrapper(gymnasium.ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
 
@@ -56,57 +53,6 @@ class Simple2DNavigationEnvTextWrapper(gymnasium.ObservationWrapper):
             "\n--- Legend ---\n A : Agent\n# : Wall\nG : Goal\n---------------\n"
         )
 
-
         # Combine the strings to create the full observation
         full_observation = mission + grid_str + legend
         return full_observation
-
-
-def run_random_episodes_with_text_observations(episodes=5, size=10):
-    """
-    Runs episodes with a random agent
-    """
-    base_env = Simple2DNavigationEnv(render_mode="human", size=size)
-    env = Simple2DNavigationEnvTextWrapper(base_env)
-
-    for i in range(episodes):
-        # Reset the environment
-        env.reset()
-        total_reward = 0
-        print(f"--- Starting Episode {i + 1}/{episodes} ---")
-
-        terminated, truncated = False, False
-
-        # Run the episode until done
-        while not (terminated or truncated):
-            env.render()
-
-            # Choose a random action
-            action = env.action_space.sample()
-            print(f"Action sampled: {action} ({base_env.actions(action).name})")
-
-            # Take the action
-            obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
-
-            # A small delay to make the simulation watchable
-            time.sleep(0.1)
-
-        # --- Episode End ---
-        env.render()
-
-        # Print Episode Summary
-        print(f"--- Episode {i + 1} Finished ---")
-        if terminated:
-            print("Goal was reached!")
-        elif truncated:
-            print("Time limit (max_steps) was reached.")
-        print(f"Total reward for the episode: {total_reward}\n")
-
-        time.sleep(1.5)  # Pause before the next episode
-
-    env.close()
-
-
-if __name__ == "__main__":
-    run_random_episodes_with_text_observations()
