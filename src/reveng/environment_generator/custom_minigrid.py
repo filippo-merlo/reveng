@@ -1,8 +1,6 @@
 import random
-import time
 from enum import IntEnum
 
-import pygame
 from gymnasium import spaces
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
@@ -118,83 +116,6 @@ class Simple2DNavigationEnv(MiniGridEnv):
             truncated = True
 
         obs = self.gen_obs()
+        # TODO: get observation after full rotation to get full observability
 
         return obs, reward, terminated, truncated, {}
-
-
-def manual_control(size):
-    env = Simple2DNavigationEnv(render_mode="human", size=size)
-    env.reset()
-
-    # Map pygame keys to environment actions for cleaner handling
-    key_to_action = {
-        pygame.K_LEFT: env.actions.LEFT,
-        pygame.K_RIGHT: env.actions.RIGHT,
-        pygame.K_UP: env.actions.UP,
-        pygame.K_DOWN: env.actions.DOWN,
-    }
-
-    running = True
-    while running:
-        env.render()
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key in key_to_action:
-                    action = key_to_action[event.key]
-                    obs, reward, terminated, truncated, info = env.step(action)
-                    print(
-                        f"Step: {env.step_count}, Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}"
-                    )
-
-                    if terminated or truncated:
-                        print("Episode finished. Resetting.")
-                        env.reset()
-
-    env.close()
-
-
-def run_random_episodes(episodes=5, size=10):
-    """
-    Runs episodes with a random agent
-    """
-    env = Simple2DNavigationEnv(render_mode="human", size=size)
-
-    for i in range(episodes):
-        # Reset the environment
-        env.reset()
-        total_reward = 0
-        print(f"--- Starting Episode {i + 1}/{episodes} ---")
-
-        terminated, truncated = False, False
-
-        # Run the episode until done
-        while not (terminated or truncated):
-            env.render()
-
-            # Choose a random action
-            action = env.action_space.sample()
-            print(f"Action sampled: {action} ({env.actions(action).name})")
-
-            # Take the action
-            obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
-
-            # A small delay to make the simulation watchable
-            time.sleep(0.1)
-
-        # --- Episode End ---
-        env.render()
-
-        # Print Episode Summary
-        print(f"--- Episode {i + 1} Finished ---")
-        if terminated:
-            print("Goal was reached!")
-        elif truncated:
-            print("Time limit (max_steps) was reached.")
-        print(f"Total reward for the episode: {total_reward}\n")
-
-        time.sleep(1.5)  # Pause before the next episode
-
-    env.close()

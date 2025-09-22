@@ -1,6 +1,6 @@
 import argparse
 
-from custom_minigrid import manual_control, run_random_episodes
+from utils import run_random_episodes, manual_control
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -9,7 +9,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["random", "manual"],
-        default="random",
+        default="manual",
         help="The mode to run the simulation in: 'random' for random actions, 'manual' for user control.",
     )
     parser.add_argument(
@@ -23,7 +23,7 @@ if __name__ == "__main__":
         "-s",
         "--size",
         type=int,
-        default=10,
+        default=20,
         help="The height and width of the grid for the environment. (Default: 10)",
     )
     args = parser.parse_args()
