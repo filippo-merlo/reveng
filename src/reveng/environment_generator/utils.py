@@ -30,6 +30,7 @@ class ObsWrapperRegistry:
 def run_random_episodes(
     episodes=5,
     size=10,
+    complexity=0.0,
     obs_modality: str = "image",
     observability: str = "full",
     save_images=False,
@@ -38,7 +39,9 @@ def run_random_episodes(
     """
     Runs episodes with a random agent
     """
-    base_env = Simple2DNavigationEnv(render_mode="human", size=size)
+    base_env = Simple2DNavigationEnv(
+        render_mode="human", size=size, complexity=complexity
+    )
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
     if obs_modality == "text" and config_path:
         env = obs_wrapper(base_env, config_path=config_path)
@@ -98,12 +101,15 @@ def run_random_episodes(
 
 def manual_control(
     size=10,
+    complexity=0.0,
     obs_modality: str = "image",
     observability: str = "full",
     save_images=True,
     config_path=None,
 ):
-    base_env = Simple2DNavigationEnv(render_mode="human", size=size)
+    base_env = Simple2DNavigationEnv(
+        render_mode="human", size=size, complexity=complexity
+    )
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
     if obs_modality == "text" and config_path:
         env = obs_wrapper(base_env, config_path=config_path)

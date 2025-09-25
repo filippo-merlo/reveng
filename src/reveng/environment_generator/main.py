@@ -27,6 +27,13 @@ if __name__ == "__main__":
         help="The height and width of the grid for the environment. (Default: 10)",
     )
     parser.add_argument(
+        "-c",
+        "--complexity",
+        type=float,
+        default=0.5,
+        help="Maze complexity from 0.0 (empty room) to 1.0 (perfect maze). (Default: 0.5)",
+    )
+    parser.add_argument(
         "--obs-modality",
         choices=["image", "text"],
         default="text",
@@ -54,11 +61,12 @@ if __name__ == "__main__":
     if args.mode == "random":
         print(
             f"Running in random mode for {args.episodes} episodes with a grid size of {args.size}x{args.size}."
-            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
+            f" Complexity: {args.complexity}, Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         run_random_episodes(
             episodes=args.episodes,
             size=args.size,
+            complexity=args.complexity,
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
@@ -67,10 +75,11 @@ if __name__ == "__main__":
     elif args.mode == "manual":
         print(
             f"Running in manual mode with a grid size of {args.size}x{args.size}."
-            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
+            f" Complexity: {args.complexity}, Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         manual_control(
             size=args.size,
+            complexity=args.complexity,
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
