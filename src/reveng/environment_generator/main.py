@@ -29,19 +29,25 @@ if __name__ == "__main__":
     parser.add_argument(
         "--obs-modality",
         choices=["image", "text"],
-        default="image",
+        default="text",
         help="Observation modality: 'image' for RGB images, 'text' for text descriptions. (Default: image)",
     )
     parser.add_argument(
         "--observability",
         choices=["full", "partial"],
-        default="full",
+        default="partial",
         help="Observability level: 'full' for complete environment visibility, 'partial' for limited visibility. (Default: full)",
     )
     parser.add_argument(
         "--save-images",
         action="store_true",
         help="Save observation images during execution (only works with image modality)",
+    )
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="text_configs/example_config.json",
+        help="Path to a JSON configuration file for text observations",
     )
     args = parser.parse_args()
 
@@ -56,6 +62,7 @@ if __name__ == "__main__":
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
+            config_path=args.config_path,
         )
     elif args.mode == "manual":
         print(
@@ -67,4 +74,5 @@ if __name__ == "__main__":
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
+            config_path=args.config_path,
         )

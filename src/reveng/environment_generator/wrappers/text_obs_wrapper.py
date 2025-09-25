@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import gymnasium
 from gymnasium.spaces import Text
 from reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
@@ -19,14 +22,22 @@ class TextObsMixin:
     environment as a text observation. It can optionally apply a fog-of-war mask.
     """
 
-    def _setup_from_config(self, config=None):
+    def _setup_from_config(self, config_path=None):
         """
         Initializes symbols and legend from a configuration dictionary.
         """
         # Use default config if none is provided
         final_config = DEFAULT_SYMBOLS_CONFIG.copy()
-        if config:
-            final_config.update(config)
+
+        # Load from JSON file if provided
+        if config_path:
+            config_path = Path(config_path)
+            if not config_path.exists():
+                raise FileNotFoundError(f"Config file not found: {config_path}")
+
+            with open(config_path, "r") as f:
+                file_config = json.load(f)
+                final_config.update(file_config)
 
         self.symbols = final_config
         self._generate_legend()
@@ -86,11 +97,11 @@ class TextObsMixin:
 
 
 class FullObservabilityTextWrapper(gymnasium.ObservationWrapper, TextObsMixin):
-    def __init__(self, env, config=None):
+    def __init__(self, env, config_path=None):
         super().__init__(env)
         self.observation_space = Text(max_length=4096, charset="utf-8")
         # Setup symbols and legend from the configuration
-        self._setup_from_config(config)
+        self._setup_from_config(config_path)
 
     def observation(self, obs):
         """Generates a fully observable text grid by calling the mixin method."""
@@ -104,11 +115,12 @@ class FogOfWarTextWrapper(FogOfWarWrapper, TextObsMixin):
     from TextObsMixin.
     """
 
-    def __init__(self, env, view_radius=None, config=None):
+    def __init__(self, env, view_radius=None, config_path=None):
+        # FogOfWarWrapper.__init__(self, env, view_radius=view_radius)
         super().__init__(env, view_radius=view_radius)
         self.observation_space = Text(max_length=4096, charset="utf-8")
         # Setup symbols and legend from the configuration
-        self._setup_from_config(config)
+        self._setup_from_config(config_path)
 
     def reset(self, **kwargs):
         """Resets the environment and ensures the first observation has fog."""

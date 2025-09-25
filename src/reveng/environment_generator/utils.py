@@ -33,13 +33,17 @@ def run_random_episodes(
     obs_modality: str = "image",
     observability: str = "full",
     save_images=False,
+    config_path=None,
 ):
     """
     Runs episodes with a random agent
     """
     base_env = Simple2DNavigationEnv(render_mode="human", size=size)
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
-    env = obs_wrapper(base_env)
+    if obs_modality == "text" and config_path:
+        env = obs_wrapper(base_env, config_path=config_path)
+    else:
+        env = obs_wrapper(base_env)
 
     for i in range(episodes):
         # Reset the environment
@@ -93,11 +97,18 @@ def run_random_episodes(
 
 
 def manual_control(
-    size=10, obs_modality: str = "image", observability: str = "full", save_images=True
+    size=10,
+    obs_modality: str = "image",
+    observability: str = "full",
+    save_images=True,
+    config_path=None,
 ):
     base_env = Simple2DNavigationEnv(render_mode="human", size=size)
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
-    env = obs_wrapper(base_env)
+    if obs_modality == "text" and config_path:
+        env = obs_wrapper(base_env, config_path=config_path)
+    else:
+        env = obs_wrapper(base_env)
     env.reset()
 
     # Map pygame keys to environment actions for cleaner handling
@@ -118,6 +129,7 @@ def manual_control(
                 if event.key in key_to_action:
                     action = key_to_action[event.key]
                     obs, reward, terminated, truncated, info = env.step(action)
+                    print(obs)
 
                     # Save observation images if requested
                     if save_images and obs_modality == "image":
