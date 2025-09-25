@@ -3,7 +3,7 @@ import time
 
 import matplotlib.pyplot as plt
 import pygame
-from minigrid.wrappers import RGBImgObsWrapper, RGBImgPartialObsWrapper
+from minigrid.wrappers import RGBImgObsWrapper
 
 from custom_minigrid import Simple2DNavigationEnv
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
@@ -69,8 +69,8 @@ def run_random_episodes(
 
                 plt.figure(figsize=(8, 8))
                 plt.imshow(obs["image"])
-                plt.title(f"Episode {i+1}, Step {base_env.step_count}")
-                plt.savefig(f"images/episode_{i+1}_step_{base_env.step_count}.png")
+                plt.title(f"Episode {i + 1}, Step {base_env.step_count}")
+                plt.savefig(f"images/episode_{i + 1}_step_{base_env.step_count}.png")
                 plt.close()
 
             # A small delay to make the simulation watchable
