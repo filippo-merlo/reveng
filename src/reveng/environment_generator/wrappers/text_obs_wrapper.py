@@ -2,12 +2,44 @@ import gymnasium
 from gymnasium.spaces import Text
 from reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
 
+# Default configuration for symbols. This can be overridden at initialization.
+DEFAULT_SYMBOLS_CONFIG = {
+    "agent": "A",
+    "wall": "#",
+    "goal": "G",
+    "empty": " ",
+    "unseen_obj": "?",  # For objects like keys, doors, etc.
+    "fog": "*",  # Character for unseen areas in fog of war
+}
+
 
 class TextObsMixin:
     """
-    A mixin class that provides a method to render a MiniGrid environment
-    as a text observation. It can optionally apply a fog-of-war mask.
+    A mixin class that provides methods to configure and render a MiniGrid
+    environment as a text observation. It can optionally apply a fog-of-war mask.
     """
+
+    def _setup_from_config(self, config=None):
+        """
+        Initializes symbols and legend from a configuration dictionary.
+        """
+        # Use default config if none is provided
+        final_config = DEFAULT_SYMBOLS_CONFIG.copy()
+        if config:
+            final_config.update(config)
+
+        self.symbols = final_config
+        self._generate_legend()
+
+    def _generate_legend(self):
+        """Dynamically creates the legend string from the current symbols."""
+        legend_items = [
+            f"{symbol} : {name.replace('_', ' ').title()}"
+            for name, symbol in self.symbols.items()
+        ]
+
+        legend_str = "\n".join(legend_items)
+        self.legend = f"\n--- Legend ---\n{legend_str}\n---------------\n"
 
     def _render_text_observation(self, seen_mask=None):
         """
@@ -26,42 +58,42 @@ class TextObsMixin:
             for i in range(env.width):
                 # If a mask exists and the cell is not visible, apply fog
                 if seen_mask is not None and not seen_mask[j, i]:
-                    row_str += self.fog_char
+                    row_str += self.symbols["fog"]
                     continue
 
                 # Check for agent position first
                 if i == env.agent_pos[0] and j == env.agent_pos[1]:
-                    row_str += "A"
+                    row_str += self.symbols["agent"]
                     continue
 
                 # Render the cell content
                 cell = env.grid.get(i, j)
                 if cell is None:
-                    row_str += "_"
+                    row_str += self.symbols["empty"]
                 elif cell.type == "wall":
-                    row_str += "#"
+                    row_str += self.symbols["wall"]
                 elif cell.type == "goal":
-                    row_str += "G"
+                    row_str += self.symbols["goal"]
                 else:
-                    row_str += "?"  # For other objects like keys, doors, etc.
+                    # For other objects like keys, doors, etc.
+                    row_str += self.symbols["unseen_obj"]
             grid_repr.append(row_str)
 
         grid_str = "\n".join(grid_repr)
 
         # 3. Combine all parts into the final observation string
-        # The 'self.legend' attribute is expected to be defined by the class using this mixin.
         return mission + grid_str + self.legend
 
 
 class FullObservabilityTextWrapper(gymnasium.ObservationWrapper, TextObsMixin):
-    def __init__(self, env):
+    def __init__(self, env, config=None):
         super().__init__(env)
         self.observation_space = Text(max_length=4096, charset="utf-8")
-        self.legend = "\n--- Legend ---\nA : Agent\n# : Wall\nG : Goal\n_ : Empty Floor\n---------------\n"
+        # Setup symbols and legend from the configuration
+        self._setup_from_config(config)
 
     def observation(self, obs):
         """Generates a fully observable text grid by calling the mixin method."""
-        # Call the shared renderer without a mask to show everything.
         return self._render_text_observation()
 
 
@@ -72,11 +104,11 @@ class FogOfWarTextWrapper(FogOfWarWrapper, TextObsMixin):
     from TextObsMixin.
     """
 
-    def __init__(self, env, view_radius=None, fog_char="?"):
+    def __init__(self, env, view_radius=None, config=None):
         super().__init__(env, view_radius=view_radius)
-        self.fog_char = fog_char
         self.observation_space = Text(max_length=4096, charset="utf-8")
-        self.legend = "\n--- Legend ---\nA : Agent\n# : Wall\nG : Goal\n_ : Empty Floor\n---------------\n"
+        # Setup symbols and legend from the configuration
+        self._setup_from_config(config)
 
     def reset(self, **kwargs):
         """Resets the environment and ensures the first observation has fog."""
@@ -85,8 +117,5 @@ class FogOfWarTextWrapper(FogOfWarWrapper, TextObsMixin):
 
     def observation(self, obs):
         """Updates the mask and then renders the text grid with fog."""
-        # 1. Update self.seen_mask from the FogOfWarWrapper parent
-        super().observation(obs)
-
-        # 2. Call the shared renderer, passing the updated mask
+        super().observation(obs)  # Updates self.seen_mask
         return self._render_text_observation(seen_mask=self.seen_mask)
