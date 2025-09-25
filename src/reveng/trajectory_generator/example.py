@@ -39,6 +39,7 @@ import time
 
 # Third-party imports
 import minigrid.wrappers as mg_wrappers
+from reveng.trajectory_generator.perturbations import apply_additional_cycle
 
 # Project imports
 import reveng.environment_generator.custom_minigrid as custom_minigrid
@@ -120,9 +121,14 @@ def build_wrapped_env(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Random trajectory generation demo")
     parser = argparse.ArgumentParser(
         description="Trajectory generation + visualization demo"
+    )
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=6,
+        help="Grid width/height (environment size)",
     )
     parser.add_argument(
         "--obs-modality",
@@ -152,6 +158,37 @@ def main():
         "--with-obstacles",
         action="store_true",
         help="Add simple interior obstacles to the grid (vertical wall with a gap)",
+    )
+    parser.add_argument(
+        "--apply-cycle",
+        action="store_true",
+        help=(
+            "Insert a net-zero displacement deviating loop (square or out-and-back) before visualization."
+        ),
+    )
+    parser.add_argument(
+        "--cycle-start",
+        type=int,
+        default=3,
+        help=(
+            "Insert cycles immediately after this 0-based step index. Ignored unless --apply-cycle is set."
+        ),
+    )
+    parser.add_argument(
+        "--cycle-repeats",
+        type=int,
+        default=1,
+        help=(
+            "Number of times to insert the cycle. Ignored unless --apply-cycle is set."
+        ),
+    )
+    parser.add_argument(
+        "--cycle-length",
+        type=int,
+        default=2,
+        help=(
+            "Number of steps per cycle (even integer >= 2). Prefers a square loop; falls back to out-and-back or in-place pairs."
+        ),
     )
     args = parser.parse_args()
 
@@ -212,11 +249,51 @@ def main():
         # so start/goal positions and dynamics match the generation run
         for i, traj in enumerate(trajectories, start=1):
             print(f"Replaying Trajectory {i}...")
+
+            # Optionally insert a net-zero displacement cycle per CLI flags
+            perturbed_traj = traj
+            if args.apply_cycle:
+                try:
+                    total_steps = len(traj.steps)
+                    if total_steps >= 1:
+                        # Clamp insertion to a safe range; insert after this start index
+                        desired_start = max(0, int(args.cycle_start))
+                        insertion_idx = min(desired_start, max(0, total_steps - 1))
+                        cycle_start = insertion_idx
+                        repeats = max(0, int(args.cycle_repeats))
+                        length = int(args.cycle_length)
+                        if length < 2 or (length % 2) != 0:
+                            raise ValueError(
+                                "--cycle-length must be an even integer >= 2"
+                            )
+                        _, plan, new_traj = apply_additional_cycle(
+                            env,
+                            traj,
+                            cycle_start_step=cycle_start,
+                            repeat_count=repeats,
+                            cycle_length=length,
+                            preserve_agent_memory=True,
+                        )
+                        if new_traj is not None:
+                            perturbed_traj = new_traj
+                            pair = plan.metadata.get("chosen_cycle")
+                            loop_type = plan.metadata.get("loop_type")
+                            base_seq = plan.metadata.get("base_sequence")
+                            print(
+                                f"[cycle] Inserted loop after step {cycle_start}: type={loop_type}, pair={pair}, "
+                                f"base_seq={base_seq}; inserted_total_steps={plan.metadata.get('inserted_total_steps')}"
+                            )
+                    else:
+                        print("[cycle] Skipping: trajectory too short to cycle")
+                except Exception as e:
+                    # Fallback gracefully if any validation/back-end issues arise
+                    print(f"[cycle] Skipping due to error: {e}")
+
             visualize_trajectory(
-                traj,
+                perturbed_traj,
                 env,
                 sleep=0.05,
-                save_gif_path=f"reveng/trajectory_generator/trajectory_gifs/{args.policy}_run.gif",
+                save_gif_path=f"reveng/trajectory_generator/trajectory_gifs/{args.policy}_run_perturbed.gif",
             )
             # Print final position vs goal for clarity
             try:

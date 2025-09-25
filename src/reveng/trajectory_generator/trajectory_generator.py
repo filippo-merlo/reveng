@@ -6,8 +6,8 @@ policies in environments and storing the results in standardized Trajectory
 format.
 """
 
-import time
 import json
+import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
