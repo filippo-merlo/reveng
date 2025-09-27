@@ -11,7 +11,7 @@ DEFAULT_SYMBOLS_CONFIG = {
     "wall": "#",
     "goal": "G",
     "empty": " ",
-    "unseen_obj": "?",  # For objects like keys, doors, etc.
+    "unknown_obj": "?",  # For objects like keys, doors, etc.
     "fog": "*",  # Character for unseen areas in fog of war
 }
 
@@ -87,7 +87,7 @@ class TextObsMixin:
                     row_str += self.symbols["goal"]
                 else:
                     # For other objects like keys, doors, etc.
-                    row_str += self.symbols["unseen_obj"]
+                    row_str += self.symbols["unknown_obj"]
             grid_repr.append(row_str)
 
         grid_str = "\n".join(grid_repr)

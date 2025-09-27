@@ -3,6 +3,6 @@
   "wall": "#",
   "goal": "G",
   "empty": " ",
-  "unseen_obj": "?",
+  "unknown_obj": "?",
   "fog": "*"
 }
