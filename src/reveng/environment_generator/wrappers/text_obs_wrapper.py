@@ -1,20 +1,61 @@
+import json
+from pathlib import Path
+
 import gymnasium
 from gymnasium.spaces import Text
+from reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
+
+# Default configuration for symbols. This can be overridden at initialization.
+DEFAULT_SYMBOLS_CONFIG = {
+    "agent": "A",
+    "wall": "#",
+    "goal": "G",
+    "empty": " ",
+    "unknown_obj": "?",  # For objects like keys, doors, etc.
+    "fog": "*",  # Character for unseen areas in fog of war
+}
 
 
-class FullObservabilityTextWrapper(gymnasium.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
+class TextObsMixin:
+    """
+    A mixin class that provides methods to configure and render a MiniGrid
+    environment as a text observation. It can optionally apply a fog-of-war mask.
+    """
 
-        # Define the new observation space.
-        self.observation_space = Text(max_length=4096, charset="utf-8")
+    def _setup_from_config(self, config_path=None):
+        """
+        Initializes symbols and legend from a configuration dictionary.
+        """
+        # Use default config if none is provided
+        final_config = DEFAULT_SYMBOLS_CONFIG.copy()
 
-        # Map agent's direction to a character
-        self.dir_map = {0: ">", 1: "v", 2: "<", 3: "^"}
+        # Load from JSON file if provided
+        if config_path:
+            config_path = Path(config_path)
+            if not config_path.exists():
+                raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    def observation(self, obs):
+            with open(config_path, "r") as f:
+                file_config = json.load(f)
+                final_config.update(file_config)
+
+        self.symbols = final_config
+        self._generate_legend()
+
+    def _generate_legend(self):
+        """Dynamically creates the legend string from the current symbols."""
+        legend_items = [
+            f"{symbol} : {name.replace('_', ' ').title()}"
+            for name, symbol in self.symbols.items()
+        ]
+
+        legend_str = "\n".join(legend_items)
+        self.legend = f"\n--- Legend ---\n{legend_str}\n---------------\n"
+
+    def _render_text_observation(self, seen_mask=None):
         """
         Generates the text observation from the environment's grid state.
+        If a seen_mask is provided, unseen cells are replaced with fog.
         """
         env = self.unwrapped
 
@@ -26,31 +67,67 @@ class FullObservabilityTextWrapper(gymnasium.ObservationWrapper):
         for j in range(env.height):
             row_str = ""
             for i in range(env.width):
-                # Check for agent position first
-                if i == env.agent_pos[0] and j == env.agent_pos[1]:
-                    # row_str += self.dir_map[env.agent_dir] # Use this if the direction is not discarded
-                    row_str += "A"
+                # If a mask exists and the cell is not visible, apply fog
+                if seen_mask is not None and not seen_mask[j, i]:
+                    row_str += self.symbols["fog"]
                     continue
 
+                # Check for agent position first
+                if i == env.agent_pos[0] and j == env.agent_pos[1]:
+                    row_str += self.symbols["agent"]
+                    continue
+
+                # Render the cell content
                 cell = env.grid.get(i, j)
                 if cell is None:
-                    row_str += "_"
+                    row_str += self.symbols["empty"]
                 elif cell.type == "wall":
-                    row_str += "#"
+                    row_str += self.symbols["wall"]
                 elif cell.type == "goal":
-                    row_str += "G"
+                    row_str += self.symbols["goal"]
                 else:
-                    row_str += "?"
+                    # For other objects like keys, doors, etc.
+                    row_str += self.symbols["unknown_obj"]
             grid_repr.append(row_str)
 
         grid_str = "\n".join(grid_repr)
 
-        # 3. Add the legend
-        # legend = (
-        #     "\n--- Legend ---\n> v < ^ : Agent\n# : Wall\nG : Goal\n---------------\n"
-        # )
-        legend = "\n--- Legend ---\n A : Agent\n# : Wall\nG : Goal\n---------------\n"
+        # 3. Combine all parts into the final observation string
+        return mission + grid_str + self.legend
 
-        # Combine the strings to create the full observation
-        full_observation = mission + grid_str + legend
-        return full_observation
+
+class FullObservabilityTextWrapper(gymnasium.ObservationWrapper, TextObsMixin):
+    def __init__(self, env, config_path=None):
+        super().__init__(env)
+        self.observation_space = Text(max_length=4096, charset="utf-8")
+        # Setup symbols and legend from the configuration
+        self._setup_from_config(config_path)
+
+    def observation(self, obs):
+        """Generates a fully observable text grid by calling the mixin method."""
+        return self._render_text_observation()
+
+
+class FogOfWarTextWrapper(FogOfWarWrapper, TextObsMixin):
+    """
+    Provides a text observation with a line-of-sight based "fog of war"
+    effect. Inherits mask-calculation from FogOfWarWrapper and rendering
+    from TextObsMixin.
+    """
+
+    def __init__(self, env, view_radius=None, config_path=None):
+        # FogOfWarWrapper.__init__(self, env, view_radius=view_radius)
+        super().__init__(env, view_radius=view_radius)
+        self.observation_space = Text(max_length=4096, charset="utf-8")
+        # Setup symbols and legend from the configuration
+        self._setup_from_config(config_path)
+
+    def reset(self, **kwargs):
+        """Resets the environment and ensures the first observation has fog."""
+        obs, info = super().reset(**kwargs)
+        return self.observation(obs), info
+
+    def observation(self, obs):
+        """Updates the mask and then renders the text grid with fog."""
+        super().observation(obs)  # Updates self.seen_mask
+        return self._render_text_observation(seen_mask=self.seen_mask)

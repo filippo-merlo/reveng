@@ -4,7 +4,7 @@ from enum import IntEnum
 from gymnasium import spaces
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
-from minigrid.core.world_object import Goal
+from minigrid.core.world_object import Goal, Wall
 from minigrid.minigrid_env import MiniGridEnv
 
 
@@ -18,35 +18,22 @@ class Simple2DNavigationEnv(MiniGridEnv):
 
     def __init__(
         self,
-        size=10,
+        size=11,
+        complexity=0.0,  # 0.0: empty room, 1.0: perfect maze
         agent_start_dir: int | None = None,
         agent_start_pos: tuple[int, int] | None = None,
         goal_pos: tuple[int, int] | None = None,
         max_steps: int | None = None,
         **kwargs,
     ):
-        if agent_start_pos is None:
-            self.agent_start_pos = (
-                random.randint(1, size - 2),
-                random.randint(1, size - 2),
-            )
-        else:
-            self.agent_start_pos = agent_start_pos
+        self.complexity = max(0.0, min(1.0, complexity))  # Clamp between 0 and 1
+        self.agent_start_pos_user = agent_start_pos
+        self.agent_start_dir_user = agent_start_dir
+        self.goal_pos_user = goal_pos
 
-        if agent_start_dir is None:
-            self.agent_start_dir = random.randint(0, 3)
-        else:
-            self.agent_start_dir = agent_start_dir
-
-        if goal_pos is None:
-            self.goal_pos = (random.randint(1, size - 2), random.randint(1, size - 2))
-            while self.goal_pos == self.agent_start_pos:
-                self.goal_pos = (
-                    random.randint(1, size - 2),
-                    random.randint(1, size - 2),
-                )
-        else:
-            self.goal_pos = goal_pos
+        if size % 2 == 0:
+            size += 1
+            print(f"Grid size must be odd for maze generation. Adjusting to {size}.")
 
         mission_space = MissionSpace(mission_func=self._gen_mission)
 
@@ -64,7 +51,6 @@ class Simple2DNavigationEnv(MiniGridEnv):
         self.actions = Simple2DNavigationEnv.Actions
         self.action_space = spaces.Discrete(len(self.actions))
 
-        # Map actions to agent direction
         self._action_to_direction = {
             self.Actions.LEFT: 2,
             self.Actions.RIGHT: 0,
@@ -76,14 +62,96 @@ class Simple2DNavigationEnv(MiniGridEnv):
     def _gen_mission():
         return "Reach the Goal"
 
+    def _generate_perfect_maze(self, width, height):
+        """Generates a perfect maze using randomized Depth-First Search."""
+        # Start with a grid full of walls
+        for i in range(width):
+            for j in range(height):
+                self.grid.set(i, j, Wall())
+
+        start_x, start_y = (
+            random.randint(0, (width - 3) // 2) * 2 + 1,
+            random.randint(0, (height - 3) // 2) * 2 + 1,
+        )
+
+        stack = [(start_x, start_y)]
+        self.grid.set(start_x, start_y, None)
+
+        while stack:
+            cx, cy = stack[-1]
+            neighbors = []
+
+            for dx, dy in [(0, 2), (0, -2), (2, 0), (-2, 0)]:
+                nx, ny = cx + dx, cy + dy
+                if (
+                    0 < nx < width - 1
+                    and 0 < ny < height - 1
+                    and self.grid.get(nx, ny)
+                    and self.grid.get(nx, ny).type == "wall"
+                ):
+                    neighbors.append((nx, ny))
+
+            if neighbors:
+                nx, ny = random.choice(neighbors)
+                self.grid.set(nx, ny, None)
+                self.grid.set((cx + nx) // 2, (cy + ny) // 2, None)
+                stack.append((nx, ny))
+            else:
+                stack.pop()
+
     def _gen_grid(self, width, height):
         self.grid = Grid(width, height)
-        self.grid.wall_rect(
-            0, 0, width, height
-        )  # To avoid terminating the game when stepping outside the grid
+
+        # 1. Generate a perfect, complex maze
+        self._generate_perfect_maze(width, height)
+
+        # 2. Identify all internal walls that can be removed
+        internal_walls = []
+        for i in range(1, width - 1):
+            for j in range(1, height - 1):
+                if self.grid.get(i, j) is not None:
+                    internal_walls.append((i, j))
+
+        random.shuffle(internal_walls)
+
+        # 3. Calculate how many walls to remove
+        num_walls_to_remove = int((1.0 - self.complexity) * len(internal_walls))
+
+        # 4. Remove the walls
+        for i in range(num_walls_to_remove):
+            self.grid.set(internal_walls[i][0], internal_walls[i][1], None)
+
+        # 5. Place Agent and Goal in valid empty spaces
+        empty_cells = []
+        for i in range(1, width - 1):
+            for j in range(1, height - 1):
+                if self.grid.get(i, j) is None:
+                    empty_cells.append((i, j))
+
+        if len(empty_cells) < 2:
+            raise Exception("Maze generation failed, not enough empty cells.")
+
+        # Place Goal
+        self.goal_pos = (
+            self.goal_pos_user
+            if self.goal_pos_user in empty_cells
+            else random.choice(empty_cells)
+        )
         self.put_obj(Goal(), *self.goal_pos)
-        self.agent_pos = self.agent_start_pos
-        self.agent_dir = self.agent_start_dir
+        empty_cells.remove(self.goal_pos)
+
+        # Place Agent
+        self.agent_pos = (
+            self.agent_start_pos_user
+            if self.agent_start_pos_user in empty_cells
+            else random.choice(empty_cells)
+        )
+        self.agent_dir = (
+            self.agent_start_dir_user
+            if self.agent_start_dir_user is not None
+            else random.randint(0, 3)
+        )
+
         self.mission = "Reach the Goal"
 
     def step(self, action):
@@ -106,8 +174,7 @@ class Simple2DNavigationEnv(MiniGridEnv):
         if fwd_cell is None or fwd_cell.can_overlap():
             self.agent_pos = tuple(fwd_pos)
 
-        # Check if the agent reached the goal
-        if fwd_cell is not None and fwd_cell.type == "goal":
+        if self.agent_pos == self.goal_pos:
             terminated = True
             reward = self._reward()
 
@@ -116,6 +183,28 @@ class Simple2DNavigationEnv(MiniGridEnv):
             truncated = True
 
         obs = self.gen_obs()
-        # TODO: get observation after full rotation to get full observability
-
         return obs, reward, terminated, truncated, {}
+
+
+if __name__ == "__main__":
+    print("--- Low complexity maze (complexity=0.2) ---")
+    low_complexity_env = Simple2DNavigationEnv(
+        size=21, complexity=0.2, render_mode="human"
+    )
+    low_complexity_env.reset()
+    low_complexity_env.render()
+    import time
+
+    time.sleep(3)
+    low_complexity_env.close()
+
+    print("--- Highest complexity maze (complexity=1.0) ---")
+    low_complexity_env = Simple2DNavigationEnv(
+        size=21, complexity=1.0, render_mode="human"
+    )
+    low_complexity_env.reset()
+    low_complexity_env.render()
+    import time
+
+    time.sleep(3)
+    low_complexity_env.close()

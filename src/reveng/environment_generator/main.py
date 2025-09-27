@@ -27,15 +27,22 @@ if __name__ == "__main__":
         help="The height and width of the grid for the environment. (Default: 10)",
     )
     parser.add_argument(
+        "-c",
+        "--complexity",
+        type=float,
+        default=0.5,
+        help="Maze complexity from 0.0 (empty room) to 1.0 (perfect maze). (Default: 0.5)",
+    )
+    parser.add_argument(
         "--obs-modality",
         choices=["image", "text"],
-        default="image",
+        default="text",
         help="Observation modality: 'image' for RGB images, 'text' for text descriptions. (Default: image)",
     )
     parser.add_argument(
         "--observability",
         choices=["full", "partial"],
-        default="full",
+        default="partial",
         help="Observability level: 'full' for complete environment visibility, 'partial' for limited visibility. (Default: full)",
     )
     parser.add_argument(
@@ -43,28 +50,38 @@ if __name__ == "__main__":
         action="store_true",
         help="Save observation images during execution (only works with image modality)",
     )
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="text_configs/example_config.json",
+        help="Path to a JSON configuration file for text observations",
+    )
     args = parser.parse_args()
 
     if args.mode == "random":
         print(
             f"Running in random mode for {args.episodes} episodes with a grid size of {args.size}x{args.size}."
-            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
+            f" Complexity: {args.complexity}, Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         run_random_episodes(
             episodes=args.episodes,
             size=args.size,
+            complexity=args.complexity,
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
+            config_path=args.config_path,
         )
     elif args.mode == "manual":
         print(
             f"Running in manual mode with a grid size of {args.size}x{args.size}."
-            f" Observation modality: {args.obs_modality}, Observability: {args.observability}"
+            f" Complexity: {args.complexity}, Observation modality: {args.obs_modality}, Observability: {args.observability}"
         )
         manual_control(
             size=args.size,
+            complexity=args.complexity,
             obs_modality=args.obs_modality,
             observability=args.observability,
             save_images=args.save_images,
+            config_path=args.config_path,
         )

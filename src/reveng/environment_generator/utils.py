@@ -3,11 +3,11 @@ import time
 
 import matplotlib.pyplot as plt
 import pygame
-from minigrid.wrappers import RGBImgObsWrapper, RGBImgPartialObsWrapper
+from minigrid.wrappers import RGBImgObsWrapper
 
 from custom_minigrid import Simple2DNavigationEnv
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
-from wrappers.text_obs_wrapper import FullObservabilityTextWrapper
+from wrappers.text_obs_wrapper import FullObservabilityTextWrapper, FogOfWarTextWrapper
 
 
 class ObsWrapperRegistry:
@@ -18,7 +18,7 @@ class ObsWrapperRegistry:
         },
         "text": {
             "full": FullObservabilityTextWrapper,
-            "partial": None,  # TODO: to be implemented
+            "partial": FogOfWarTextWrapper,
         },
     }
 
@@ -30,16 +30,23 @@ class ObsWrapperRegistry:
 def run_random_episodes(
     episodes=5,
     size=10,
+    complexity=0.0,
     obs_modality: str = "image",
     observability: str = "full",
     save_images=False,
+    config_path=None,
 ):
     """
     Runs episodes with a random agent
     """
-    base_env = Simple2DNavigationEnv(render_mode="human", size=size)
+    base_env = Simple2DNavigationEnv(
+        render_mode="human", size=size, complexity=complexity
+    )
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
-    env = obs_wrapper(base_env)
+    if obs_modality == "text" and config_path:
+        env = obs_wrapper(base_env, config_path=config_path)
+    else:
+        env = obs_wrapper(base_env)
 
     for i in range(episodes):
         # Reset the environment
@@ -69,8 +76,8 @@ def run_random_episodes(
 
                 plt.figure(figsize=(8, 8))
                 plt.imshow(obs["image"])
-                plt.title(f"Episode {i+1}, Step {base_env.step_count}")
-                plt.savefig(f"images/episode_{i+1}_step_{base_env.step_count}.png")
+                plt.title(f"Episode {i + 1}, Step {base_env.step_count}")
+                plt.savefig(f"images/episode_{i + 1}_step_{base_env.step_count}.png")
                 plt.close()
 
             # A small delay to make the simulation watchable
@@ -93,11 +100,21 @@ def run_random_episodes(
 
 
 def manual_control(
-    size=10, obs_modality: str = "image", observability: str = "full", save_images=True
+    size=10,
+    complexity=0.0,
+    obs_modality: str = "image",
+    observability: str = "full",
+    save_images=True,
+    config_path=None,
 ):
-    base_env = Simple2DNavigationEnv(render_mode="human", size=size)
+    base_env = Simple2DNavigationEnv(
+        render_mode="human", size=size, complexity=complexity
+    )
     obs_wrapper = ObsWrapperRegistry.get_wrapper(obs_modality, observability)
-    env = obs_wrapper(base_env)
+    if obs_modality == "text" and config_path:
+        env = obs_wrapper(base_env, config_path=config_path)
+    else:
+        env = obs_wrapper(base_env)
     env.reset()
 
     # Map pygame keys to environment actions for cleaner handling
@@ -118,6 +135,7 @@ def manual_control(
                 if event.key in key_to_action:
                     action = key_to_action[event.key]
                     obs, reward, terminated, truncated, info = env.step(action)
+                    print(obs)
 
                     # Save observation images if requested
                     if save_images and obs_modality == "image":

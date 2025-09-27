@@ -1,0 +1,8 @@
+{
+  "agent": "A",
+  "wall": "#",
+  "goal": "G",
+  "empty": " ",
+  "unknown_obj": "?",
+  "fog": "*"
+}
