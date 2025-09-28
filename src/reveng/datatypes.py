@@ -10,7 +10,7 @@ class Step:
     observation: str
     action: str
     reward: t.Optional[float]
-    thought: t.Optional[str]
+    metadata: Dict
 
 
 @dataclass
