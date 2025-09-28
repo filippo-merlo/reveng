@@ -313,8 +313,8 @@ def apply_additional_cycle(
                     observation=obs_stub,
                     action=str(a),
                     reward=None,
-                    thought=(
-                        trajectory.steps[insertion_index - 1].thought
+                    metadata=(
+                        trajectory.steps[insertion_index - 1].metadata
                         if preserve_agent_memory and insertion_index > 0
                         else None
                     ),

@@ -8,18 +8,31 @@ format.
 
 import json
 import time
+from dataclasses import asdict
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from reveng.datatypes import Step, Trajectory
+from reveng.agents.agent_abc import Agent
+
+
+def _save_trajectory_to_json(
+    trajectory: Trajectory,
+    save_dir: Path,
+    file_name: str,
+    indent: int,
+):
+    """Saves a single trajectory object to a JSON file."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+    file_path = save_dir / file_name
+    file_path.write_text(json.dumps(asdict(trajectory), indent=indent))
 
 
 def generate_trajectories(
     env,
-    agent: Callable,
+    agent: Agent,
     num_trajectories: int,
     max_steps_per_trajectory: Optional[int] = None,
-    include_thoughts: bool = False,
     reset_between_trajectories: bool = True,
     save_dir: Optional[str] = None,
     save_prefix: str = "trajectory",
@@ -112,16 +125,11 @@ def generate_trajectories(
         )
 
     trajectories: List[Trajectory] = []
-
-    # Prepare save directory if requested
-    save_path: Optional[Path] = None
-    if save_dir:
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
+    observation, info = env.reset()
 
     for traj_idx in range(num_trajectories):
-        # Reset environment if requested or on first trajectory
-        if reset_between_trajectories or traj_idx == 0:
+        # Reset environment if requested
+        if reset_between_trajectories:
             observation, info = env.reset()
 
         steps: List[Step] = []
@@ -138,17 +146,9 @@ def generate_trajectories(
             ):
                 break
 
-            # Get action (and optional thought) from the agent
-            if include_thoughts:
-                try:
-                    action, thought = agent(observation, info, env)
-                except (TypeError, ValueError):
-                    # Fallback to action-only if agent doesn't return thoughts
-                    action = agent(observation, info, env)
-                    thought = None
-            else:
-                action = agent(observation, info, env)
-                thought = None
+            action, metadata = agent.select_action(
+                env=env, observation=observation, info=info
+            )
 
             # Step the environment
             next_obs, reward, terminated, truncated, next_info = env.step(action)
@@ -160,7 +160,7 @@ def generate_trajectories(
                     observation=str(observation),
                     action=str(action),
                     reward=float(reward),
-                    thought=thought,
+                    metadata=metadata,
                 )
             )
 
@@ -172,23 +172,10 @@ def generate_trajectories(
         traj_obj = Trajectory(steps=steps, action_space=[], final_reward=total_reward)
         trajectories.append(traj_obj)
 
-        # Optionally save to JSON per trajectory
-        if save_path is not None:
-            payload = {
-                "steps": [
-                    {
-                        "observation": s.observation,
-                        "action": s.action,
-                        "reward": s.reward,
-                        "thought": s.thought,
-                    }
-                    for s in traj_obj.steps
-                ],
-                "action_space": traj_obj.action_space,
-                "final_reward": traj_obj.final_reward,
-            }
-            out_file = save_path / f"{save_prefix}_{traj_idx + 1}.json"
-            out_file.write_text(json.dumps(payload, indent=save_indent))
+        # If a save directory is provided, create it and save the trajectory data.
+        if save_dir:
+            file_name = f"{save_prefix}_{traj_idx + 1}.json"
+            _save_trajectory_to_json(traj_obj, Path(save_dir), file_name, save_indent)
 
     return trajectories
 

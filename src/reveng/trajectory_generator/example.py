@@ -45,7 +45,7 @@ from reveng.trajectory_generator.perturbations import apply_additional_cycle
 import reveng.environment_generator.custom_minigrid as custom_minigrid
 import reveng.environment_generator.wrappers.rgb_obs_wrappers as rgb_wrappers
 import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
-import reveng.trajectory_generator.policies as policies
+import reveng.agents as agents
 import reveng.trajectory_generator.trajectory_generator as traj_gen
 from reveng.trajectory_generator.trajectory_generator import visualize_trajectory
 
@@ -59,7 +59,7 @@ def build_wrapped_env(
     Args:
       size: Grid width/height.
       obs_modality: "image" or "text" observations.
-      observability: "full" or "partial" (partial text not implemented).
+      observability: "full" or "partial".
       with_obstacles: When True, inject a simple interior wall with a gap.
 
     Returns:
@@ -215,16 +215,15 @@ def main():
                 print(
                     "[note] A* policy assumes full observability; proceeding anyway by using base env state."
                 )
-            agent = policies.astar_policy
+            agent = agents.AlphaStarAgent()
         else:
-            agent = policies.random_policy
+            agent = agents.RandomAgent()
 
         trajectories = traj_gen.generate_trajectories(
             env=env,
             agent=agent,  # selected policy from policies.py
             num_trajectories=args.trajectories,
             max_steps_per_trajectory=args.max_steps,
-            include_thoughts=False,
             reset_between_trajectories=True,
         )
 
@@ -293,7 +292,7 @@ def main():
                 perturbed_traj,
                 env,
                 sleep=0.05,
-                save_gif_path=f"reveng/trajectory_generator/trajectory_gifs/{args.policy}_run_perturbed.gif",
+                save_gif_path=f"trajectory_gifs/{args.policy}_run_perturbed.gif",
             )
             # Print final position vs goal for clarity
             try:
