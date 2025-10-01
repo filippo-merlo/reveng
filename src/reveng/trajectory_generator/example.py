@@ -190,6 +190,12 @@ def main():
             "Number of steps per cycle (even integer >= 2). Prefers a square loop; falls back to out-and-back or in-place pairs."
         ),
     )
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default=None,
+        help="Directory to save the trajectory GIFs",
+    )
     args = parser.parse_args()
 
     env = build_wrapped_env(
@@ -225,6 +231,7 @@ def main():
             num_trajectories=args.trajectories,
             max_steps_per_trajectory=args.max_steps,
             reset_between_trajectories=True,
+            save_dir=args.save_dir,
         )
 
         # Print a short summary

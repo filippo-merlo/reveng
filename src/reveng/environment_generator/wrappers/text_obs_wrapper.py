@@ -52,6 +52,27 @@ class TextObsMixin:
         legend_str = "\n".join(legend_items)
         self.legend = f"\n--- Legend ---\n{legend_str}\n---------------\n"
 
+    def _get_cell_type_at_position(self, env, seen_mask, i, j):
+        # If a mask exists and the cell is not visible, apply fog
+        if seen_mask is not None and not seen_mask[j, i]:
+            return "fog"
+
+        # Check for agent position first
+        if i == env.agent_pos[0] and j == env.agent_pos[1]:
+            return "agent"
+
+        # Render the cell content
+        cell = env.grid.get(i, j)
+        if cell is None:
+            return "empty"
+        elif cell.type == "wall":
+            return "wall"
+        elif cell.type == "goal":
+            return "goal"
+        else:
+            # For other objects like keys, doors, etc.
+            return "unknown_obj"
+
     def _render_text_observation(self, seen_mask=None):
         """
         Generates the text observation from the environment's grid state.
@@ -67,27 +88,10 @@ class TextObsMixin:
         for j in range(env.height):
             row_str = ""
             for i in range(env.width):
-                # If a mask exists and the cell is not visible, apply fog
-                if seen_mask is not None and not seen_mask[j, i]:
-                    row_str += self.symbols["fog"]
-                    continue
+                cell_type = self._get_cell_type_at_position(env, seen_mask, i, j)
+                symbol = self.symbols[cell_type]
+                row_str += symbol
 
-                # Check for agent position first
-                if i == env.agent_pos[0] and j == env.agent_pos[1]:
-                    row_str += self.symbols["agent"]
-                    continue
-
-                # Render the cell content
-                cell = env.grid.get(i, j)
-                if cell is None:
-                    row_str += self.symbols["empty"]
-                elif cell.type == "wall":
-                    row_str += self.symbols["wall"]
-                elif cell.type == "goal":
-                    row_str += self.symbols["goal"]
-                else:
-                    # For other objects like keys, doors, etc.
-                    row_str += self.symbols["unknown_obj"]
             grid_repr.append(row_str)
 
         grid_str = "\n".join(grid_repr)
