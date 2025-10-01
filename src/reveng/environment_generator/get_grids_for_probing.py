@@ -5,14 +5,25 @@ from custom_minigrid import Simple2DNavigationEnv
 import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
 import reveng.trajectory_generator.trajectory_generator as traj_gen
 import reveng.agents as agents
+import os
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--size", type=int, default=20)
     parser.add_argument("--num-envs", type=int, default=1)
-    parser.add_argument("--results-path", type=str, default="grids_for_probing.csv")
-    parser.add_argument("--distance-prediction", action="store_true", help="Only save each environment once, do not loop over (x,y) coordinates.")
+    parser.add_argument("--results-dir", type=str, default="grids_for_probing")
+    parser.add_argument(
+        "--file-name",
+        type=str,
+        default="grids_for_probing.csv",
+        help="Name of the output CSV file",
+    )
+    parser.add_argument(
+        "--distance-prediction",
+        action="store_true",
+        help="Only save each environment once, do not loop over (x,y) coordinates.",
+    )
     args = parser.parse_args()
 
     results = []
@@ -23,7 +34,6 @@ if __name__ == "__main__":
     )
 
     for env_idx in range(args.num_envs):
-
         one_env_results = []
         env = Simple2DNavigationEnv(size=args.size, complexity=complexities[env_idx])
 
@@ -58,8 +68,8 @@ if __name__ == "__main__":
                         "classes_map": repr(wrapped_env.symbols),
                     }
                 )
-        
-        print(f"Generating a trajectory from alphastar")
+
+        print("Generating a trajectory from AlphaStar")
         agent = agents.AlphaStarAgent()
 
         trajectory = traj_gen.generate_one_trajectory(
@@ -76,4 +86,8 @@ if __name__ == "__main__":
             results.append(one_env_result)
 
     df = pd.DataFrame(results)
-    df.to_csv("grids_for_probing.csv", index=False)
+
+    os.makedirs(args.results_dir, exist_ok=True)
+    results_path = os.path.join(args.results_dir, args.file_name)
+    df.to_csv(results_path, index=False)
+    print(f"Results saved to {results_path}")
