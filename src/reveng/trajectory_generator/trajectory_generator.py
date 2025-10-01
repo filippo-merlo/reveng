@@ -128,48 +128,18 @@ def generate_trajectories(
     observation, info = env.reset()
 
     for traj_idx in range(num_trajectories):
-        # Reset environment if requested
+         # Reset environment if requested
         if reset_between_trajectories:
             observation, info = env.reset()
+        
+        traj_obj = generate_one_trajectory(
+            env=env,
+            observation=observation,
+            info=info,
+            agent=agent,
+            max_steps_per_trajectory=max_steps_per_trajectory,
+        )
 
-        steps: List[Step] = []
-        total_reward = 0.0
-        step_count = 0
-        terminated = False
-        truncated = False
-
-        # Roll out one trajectory
-        while not (terminated or truncated):
-            if (
-                max_steps_per_trajectory is not None
-                and step_count >= max_steps_per_trajectory
-            ):
-                break
-
-            action, metadata = agent.select_action(
-                env=env, observation=observation, info=info
-            )
-
-            # Step the environment
-            next_obs, reward, terminated, truncated, next_info = env.step(action)
-            total_reward += float(reward)
-
-            # Record step (use string forms to align with scoring pipeline expectations)
-            steps.append(
-                Step(
-                    observation=str(observation),
-                    action=str(action),
-                    reward=float(reward),
-                    metadata=metadata,
-                )
-            )
-
-            # Prepare next iteration
-            observation = next_obs
-            info = next_info
-            step_count += 1
-
-        traj_obj = Trajectory(steps=steps, action_space=[], final_reward=total_reward)
         trajectories.append(traj_obj)
 
         # If a save directory is provided, create it and save the trajectory data.
@@ -179,6 +149,53 @@ def generate_trajectories(
 
     return trajectories
 
+def generate_one_trajectory(
+    env,
+    observation,
+    info,
+    agent: Agent,
+    max_steps_per_trajectory: Optional[int] = None,
+):
+
+    steps: List[Step] = []
+    total_reward = 0.0
+    step_count = 0
+    terminated = False
+    truncated = False
+
+    # Roll out one trajectory
+    while not (terminated or truncated):
+        if (
+            max_steps_per_trajectory is not None
+            and step_count >= max_steps_per_trajectory
+        ):
+            break
+
+        action, metadata = agent.select_action(
+            env=env, observation=observation, info=info
+        )
+
+        # Step the environment
+        next_obs, reward, terminated, truncated, next_info = env.step(action)
+        total_reward += float(reward)
+
+        # Record step (use string forms to align with scoring pipeline expectations)
+        steps.append(
+            Step(
+                observation=str(observation),
+                action=str(action),
+                reward=float(reward),
+                metadata=metadata,
+            )
+        )
+
+        # Prepare next iteration
+        observation = next_obs
+        info = next_info
+        step_count += 1
+
+    traj_obj = Trajectory(steps=steps, action_space=[], final_reward=total_reward)
+    return traj_obj
 
 def visualize_trajectory(
     trajectory: Trajectory,
