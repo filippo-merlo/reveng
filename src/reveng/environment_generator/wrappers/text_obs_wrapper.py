@@ -52,7 +52,8 @@ class TextObsMixin:
         legend_str = "\n".join(legend_items)
         self.legend = f"\n--- Legend ---\n{legend_str}\n---------------\n"
 
-    def _get_cell_type_at_position(self, env, seen_mask, i, j):
+    @staticmethod
+    def _get_cell_type_at_position(env, seen_mask, i, j):
         # If a mask exists and the cell is not visible, apply fog
         if seen_mask is not None and not seen_mask[j, i]:
             return "fog"
