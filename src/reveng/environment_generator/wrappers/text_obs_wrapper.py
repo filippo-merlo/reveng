@@ -52,8 +52,7 @@ class TextObsMixin:
         legend_str = "\n".join(legend_items)
         self.legend = f"\n--- Legend ---\n{legend_str}\n---------------\n"
 
-    @staticmethod
-    def _get_cell_type_at_position(env, seen_mask, i, j):
+    def _get_cell_type_at_position(self, env, seen_mask, i, j):
         # If a mask exists and the cell is not visible, apply fog
         if seen_mask is not None and not seen_mask[j, i]:
             return "fog"
@@ -66,10 +65,8 @@ class TextObsMixin:
         cell = env.grid.get(i, j)
         if cell is None:
             return "empty"
-        elif cell.type == "wall":
-            return "wall"
-        elif cell.type == "goal":
-            return "goal"
+        elif cell.type in self.symbols:
+            return cell.type
         else:
             # For other objects like keys, doors, etc.
             return "unknown_obj"
