@@ -248,32 +248,28 @@ class IsoDifficultyTransformationFactory:
 
                     # Dead end has exactly 1 neighbor
                     if neighbors == 1:
-                        agent_pos = self._as_tuple(varied_env.agent_pos)
-                        goal_pos = self._as_tuple(varied_env.goal_pos)
-
-                        # Only modify if far from agent and goal
-                        if agent_pos and goal_pos:
-                            dist_to_agent = abs(x - agent_pos[0]) + abs(
-                                y - agent_pos[1]
-                            )
-                            dist_to_goal = abs(x - goal_pos[0]) + abs(y - goal_pos[1])
-                            if dist_to_agent > 3 and dist_to_goal > 3:
-                                dead_ends.append((x, y))
+                        dead_ends.append((x, y))
 
         # Randomly extend some dead ends by one cell
         for dead_end in dead_ends[
             : len(dead_ends) // 3
         ]:  # Modify 1/3 of eligible dead ends
             x, y = dead_end
-            # Try to add a wall adjacent to the dead end
+            # Try to remove a wall adjacent to the dead end
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
                 if (
                     varied_env.grid.get(nx, ny) is not None
                     and varied_env.grid.get(nx, ny).type == "wall"
+                    # Don't remove walls at the edges of the grid
+                    and (
+                        nx != 0
+                        and ny != 0
+                        and nx != varied_env.width - 1
+                        and ny != varied_env.height - 1
+                    )
                 ):
                     # Check if we can safely remove this wall
-                    # (it won't connect two separate areas)
                     varied_env.grid.set(nx, ny, None)
                     break
 
