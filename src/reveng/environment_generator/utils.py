@@ -3,11 +3,11 @@ import time
 
 import matplotlib.pyplot as plt
 import pygame
-from minigrid.wrappers import RGBImgObsWrapper
-
 from custom_minigrid import Simple2DNavigationEnv
+from minigrid.minigrid_env import MiniGridEnv
+from minigrid.wrappers import RGBImgObsWrapper
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
-from wrappers.text_obs_wrapper import FullObservabilityTextWrapper, FogOfWarTextWrapper
+from wrappers.text_obs_wrapper import FogOfWarTextWrapper, FullObservabilityTextWrapper
 
 
 class ObsWrapperRegistry:
@@ -25,6 +25,24 @@ class ObsWrapperRegistry:
     @staticmethod
     def get_wrapper(modality: str, observability: str):
         return ObsWrapperRegistry.wrappers.get(modality, {}).get(observability)
+
+
+def get_all_dead_ends(env: MiniGridEnv) -> list[tuple[int, int]]:
+    dead_ends = []
+    for x in range(1, env.width - 1):
+        for y in range(1, env.height - 1):
+            if env.grid.get(x, y) is None:
+                # Count empty neighbors
+                neighbors = 0
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    nx, ny = x + dx, y + dy
+                    if env.grid.get(nx, ny) is None:
+                        neighbors += 1
+
+                # Dead end has exactly 1 neighbor
+                if neighbors == 1:
+                    dead_ends.append((x, y))
+    return dead_ends
 
 
 def run_random_episodes(

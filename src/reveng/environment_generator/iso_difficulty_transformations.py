@@ -7,6 +7,8 @@ import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
 
+from reveng.environment_generator.utils import get_all_dead_ends
+
 
 class IsoDifficultyTransformationFactory:
     def __init__(self):
@@ -235,22 +237,9 @@ class IsoDifficultyTransformationFactory:
         varied_env = self._clone_env(env)
 
         # Find all dead-end cells (cells with only one neighbor)
-        dead_ends = []
-        for x in range(1, varied_env.width - 1):
-            for y in range(1, varied_env.height - 1):
-                if varied_env.grid.get(x, y) is None:
-                    # Count empty neighbors
-                    neighbors = 0
-                    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                        nx, ny = x + dx, y + dy
-                        if varied_env.grid.get(nx, ny) is None:
-                            neighbors += 1
-
-                    # Dead end has exactly 1 neighbor
-                    if neighbors == 1:
-                        dead_ends.append((x, y))
 
         # Randomly extend some dead ends by one cell
+        dead_ends = get_all_dead_ends(varied_env)
         for dead_end in dead_ends[
             : len(dead_ends) // 3
         ]:  # Modify 1/3 of eligible dead ends
