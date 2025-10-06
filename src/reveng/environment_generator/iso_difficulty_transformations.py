@@ -6,6 +6,8 @@ from typing import Callable, Iterable, Tuple
 import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
+import reveng.agents as agents
+from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
 
 
 class IsoDifficultyTransformationFactory:
@@ -226,15 +228,43 @@ class IsoDifficultyTransformationFactory:
 
         return swapped_env
 
+    def _compute_optimal_path_length(self, env: MiniGridEnv) -> float:
+        """
+        Compute shortest path length using generate_one_trajectory with AlphaStarAgent.
+
+        Args:
+            env: The environment to compute the optimal path for
+
+        Returns:
+            The length of the optimal path, or float('inf') if no path exists
+        """
+        # Create a fresh copy of the environment to avoid side effects
+        test_env = self._clone_env(env)
+
+        # Create an AlphaStarAgent
+        agent = agents.AlphaStarAgent()
+
+        # Generate a trajectory using the agent
+        trajectory = generate_one_trajectory(
+            env=test_env, observation=None, info=None, agent=agent
+        )
+
+        # The optimal path length is the number of steps in the trajectory
+        if trajectory and trajectory.steps:
+            return len(trajectory.steps)
+
+        return float("inf")  # No path found
+
     def remove_dead_end(self, env: MiniGridEnv) -> MiniGridEnv:
         """
-        Remove walls in dead-end areas that are far from optimal paths.
-        This changes the visual appearance without affecting path metrics.
+        Removes a wall at a dead-end, ensuring the optimal path length remains unchanged.
         """
+        # 1. Establish the baseline optimal path length for the original environment.
+        original_path_length = self._compute_optimal_path_length(env)
 
         varied_env = self._clone_env(env)
 
-        # Find all dead-end cells (cells with only one neighbor)
+        # 2. Find all dead-end cells (cells with only one empty neighbor).
         dead_ends = []
         for x in range(1, varied_env.width - 1):
             for y in range(1, varied_env.height - 1):
@@ -246,41 +276,41 @@ class IsoDifficultyTransformationFactory:
                         if varied_env.grid.get(nx, ny) is None:
                             neighbors += 1
 
-                    # Dead end has exactly 1 neighbor
+                    # A dead-end is an empty cell with exactly one empty neighbor.
                     if neighbors == 1:
-                        agent_pos = self._as_tuple(varied_env.agent_pos)
-                        goal_pos = self._as_tuple(varied_env.goal_pos)
+                        dead_ends.append((x, y))
 
-                        # Only modify if far from agent and goal
-                        if agent_pos and goal_pos:
-                            dist_to_agent = abs(x - agent_pos[0]) + abs(
-                                y - agent_pos[1]
-                            )
-                            dist_to_goal = abs(x - goal_pos[0]) + abs(y - goal_pos[1])
-                            if dist_to_agent > 3 and dist_to_goal > 3:
-                                dead_ends.append((x, y))
+        # Randomize to avoid bias towards top-left dead-ends
+        import random
 
-        # Randomly extend some dead ends by one cell
-        for dead_end in dead_ends[
-            : len(dead_ends) // 3
-        ]:  # Modify 1/3 of eligible dead ends
-            x, y = dead_end
-            # Try to add a wall adjacent to the dead end
+        random.shuffle(dead_ends)
+
+        # 3. Test each candidate modification.
+        for x, y in dead_ends:
+            # Find the adjacent wall that creates the dead-end.
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
-                if (
-                    varied_env.grid.get(nx, ny) is not None
-                    and varied_env.grid.get(nx, ny).type == "wall"
-                ):
-                    # Check if we can safely remove this wall
-                    # (it won't connect two separate areas)
-                    varied_env.grid.set(nx, ny, None)
-                    break
+                neighbor_cell = env.grid.get(nx, ny)
 
-        if varied_env.grid == env.grid:
-            raise ValueError("No dead-end variation was applied")
+                if neighbor_cell is not None and neighbor_cell.type == "wall":
+                    # a. Create a temporary environment for testing.
+                    trial_env = self._clone_env(env)
 
-        return varied_env
+                    # b. Apply the change: remove the wall.
+                    trial_env.grid.set(nx, ny, None)
+
+                    # c. Calculate the new optimal path length.
+                    new_path_length = self._compute_optimal_path_length(trial_env)
+
+                    # d. Validate: If the path length is unchanged, we've found a safe modification.
+                    if new_path_length == original_path_length:
+                        # Success! Return the safely modified environment.
+                        return trial_env
+
+        # 4. If the loop finishes, no safe modification was found.
+        raise ValueError(
+            "No dead-end variation was applied that preserved the optimal path."
+        )
 
     def get_all_transformations(self, env: MiniGridEnv) -> list[MiniGridEnv]:
         return [
@@ -297,7 +327,7 @@ if __name__ == "__main__":
     # Create a sample environment
     print("Creating original environment...")
     env = Simple2DNavigationEnv(
-        size=20,
+        size=11,
         complexity=1.0,
         agent_start_pos=(1, 1),
         agent_start_dir=0,
