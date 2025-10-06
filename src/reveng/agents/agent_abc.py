@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Tuple
+
 from minigrid.minigrid_env import MiniGridEnv
 
 
@@ -14,9 +15,7 @@ class Agent(ABC):
         Args:
             name: agent's name
         """
-
         self.name = name if name else self.__class__.__name__
-        super().__init__()
 
     @abstractmethod
     def select_action(self, env: MiniGridEnv, **kwargs: Any) -> Tuple[int, dict]:

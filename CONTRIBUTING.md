@@ -36,6 +36,14 @@
 
 `uvx` is shorthand for `uv tool run`; it installs and caches development tools without modifying the project's dependency lists.
 
+6. **Set up a .env file**
+In the project root, create a `.env` file and set it up:
+```
+FIREWORKS_AI_API_KEY="<insert your api key here>"
+```
+
+DO NOT commit your .env file! It should already be in the `.gitignore`.
+
 ## Editor Configuration
 
 ### VS Code Setup with Ruff
