@@ -1,29 +1,24 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, Tuple
+import random
+from abc import ABC, abstractmethod
+from typing import Callable, Iterable, Optional, Tuple
 
 import numpy as np
 from minigrid.core.grid import Grid
+from minigrid.core.world_object import Goal, Wall
 from minigrid.minigrid_env import MiniGridEnv
+
 from reveng.environment_generator.utils import (
     clone_env,
     compute_optimal_path_length,
     get_all_dead_ends,
     is_internal_point,
 )
-import random
 
 
-class IsoDifficultyTransformationFactory:
+class EnvTransformation(ABC):
     def __init__(self):
-        self.transformations = {
-            "rotation": self.rotate_env,
-            "reflection": self.reflect_env,
-            "transpose": self.transpose_env,
-            "start_goal_swap": self.start_goal_swap,
-            "remove_dead_end": self.remove_dead_end,
-        }
-
         self._position_attrs = (
             "agent_pos",
             "agent_start_pos_user",
@@ -118,7 +113,13 @@ class IsoDifficultyTransformationFactory:
                 transposed.set(y, x, grid.get(x, y))
         return transposed
 
-    def rotate_env(self, env: MiniGridEnv) -> MiniGridEnv:
+    @abstractmethod
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
+        pass
+
+
+class RotateEnv(EnvTransformation):
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
         rotated_env = clone_env(env)
 
         orig_width = rotated_env.grid.width
@@ -137,7 +138,9 @@ class IsoDifficultyTransformationFactory:
 
         return rotated_env
 
-    def reflect_env(self, env: MiniGridEnv) -> MiniGridEnv:
+
+class ReflectEnv(EnvTransformation):
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
         reflected_env = clone_env(env)
 
         width = reflected_env.grid.width
@@ -160,7 +163,9 @@ class IsoDifficultyTransformationFactory:
 
         return reflected_env
 
-    def transpose_env(self, env: MiniGridEnv) -> MiniGridEnv:
+
+class TransposeEnv(EnvTransformation):
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
         transposed_env = clone_env(env)
 
         transposed_env.grid = self._transpose_grid(transposed_env.grid)
@@ -178,15 +183,14 @@ class IsoDifficultyTransformationFactory:
 
         return transposed_env
 
-    def start_goal_swap(self, env: MiniGridEnv) -> MiniGridEnv:
+
+class StartGoalSwap(EnvTransformation):
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
         """
         Swap the start and goal positions.
         This preserves optimal path distance and route multiplicity by reversing the path.
         """
         swapped_env = clone_env(env)
-
-        # Import Goal from minigrid
-        from minigrid.core.world_object import Goal
 
         # Swap positions
         old_agent_pos = self._as_tuple(swapped_env.agent_pos)
@@ -213,7 +217,9 @@ class IsoDifficultyTransformationFactory:
 
         return swapped_env
 
-    def remove_dead_end(self, env: MiniGridEnv) -> MiniGridEnv:
+
+class RemoveDeadEnd(EnvTransformation):
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
         """
         Removes a wall at a dead-end, ensuring the optimal path length remains unchanged.
         """
@@ -258,11 +264,147 @@ class IsoDifficultyTransformationFactory:
             "No dead-end variation was applied that preserved the optimal path."
         )
 
-    def get_all_transformations(self, env: MiniGridEnv) -> list[MiniGridEnv]:
-        return [
-            self.transformations[transformation](env)
-            for transformation in self.transformations
-        ]
+
+class GoalDisplacement(EnvTransformation):
+    def __init__(
+        self,
+        new_goal_pos: Optional[Tuple[int, int]] = None,
+        random_displacement: bool = True,
+    ):
+        super().__init__()
+        self.new_goal_pos = new_goal_pos
+        self.random_displacement = random_displacement
+
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
+        """
+        Move the goal to a new location.
+        """
+        displaced_env = clone_env(env)
+        old_goal_pos = (
+            displaced_env.goal_pos if hasattr(displaced_env, "goal_pos") else None
+        )
+
+        if self.new_goal_pos:
+            new_pos = self.new_goal_pos
+        elif self.random_displacement:
+            # Find a valid random position (not wall, not agent)
+            valid_positions = []
+            for i in range(displaced_env.width):
+                for j in range(displaced_env.height):
+                    cell = displaced_env.grid.get(i, j)
+                    if cell is None or cell.type == "goal":
+                        if (i, j) != tuple(displaced_env.agent_pos) and (
+                            i,
+                            j,
+                        ) != old_goal_pos:
+                            valid_positions.append((i, j))
+            new_pos = random.choice(valid_positions)
+        else:
+            raise ValueError("No goal position specified")
+
+        # Remove old goal
+        if old_goal_pos is not None:
+            displaced_env.grid.set(old_goal_pos[0], old_goal_pos[1], None)
+
+        # Place new goal
+        displaced_env.put_obj(Goal(), *new_pos)
+        displaced_env.goal_pos = new_pos
+        if hasattr(displaced_env, "goal_pos_user"):
+            displaced_env.goal_pos_user = new_pos
+
+        return displaced_env
+
+
+class DynamicObstacle(EnvTransformation):
+    def __init__(
+        self,
+        action: str = "add",
+        positions: Optional[list] = None,
+        count: int = 1,
+    ):
+        super().__init__()
+        self.action = action
+        self.positions = positions
+        self.count = count
+
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
+        """
+        Add or remove walls/obstacles mid-trajectory.
+        """
+        if self.action not in ["add", "remove"]:
+            raise ValueError("Invalid action. Must be 'add' or 'remove'.")
+
+        modified_env = clone_env(env)
+        modified_positions = []
+
+        if self.action == "add":
+            positions_to_add = (
+                self.positions
+                if self.positions
+                else self._find_valid_positions(modified_env, self.count)
+            )
+
+            for pos in positions_to_add:
+                wall = Wall()
+                modified_env.grid.set(pos[0], pos[1], wall)
+                modified_positions.append(pos)
+
+        elif self.action == "remove":
+            positions_to_remove = (
+                self.positions
+                if self.positions
+                else self._find_walls(modified_env, self.count)
+            )
+
+            for pos in positions_to_remove:
+                cell = modified_env.grid.get(pos[0], pos[1])
+                if cell and cell.type == "wall":
+                    modified_env.grid.set(pos[0], pos[1], None)
+                    modified_positions.append(pos)
+
+        return modified_env
+
+    def _find_valid_positions(self, env, count):
+        """Find empty positions suitable for placing walls."""
+        # WARNING / TODO this can block the agent from reaching the goal
+        valid = []
+        for i in range(env.width):
+            for j in range(env.height):
+                cell = env.grid.get(i, j)
+                if cell is None and (i, j) != tuple(env.agent_pos):
+                    valid.append((i, j))
+        return random.sample(valid, min(count, len(valid)))
+
+    def _find_walls(self, env, count):
+        """Find existing walls that can be removed."""
+        walls = []
+        for i in range(env.width):
+            for j in range(env.height):
+                cell = env.grid.get(i, j)
+                if cell and cell.type == "wall":
+                    walls.append((i, j))
+        return random.sample(walls, min(count, len(walls)))
+
+
+class RewardStructureChange(EnvTransformation):
+    def __init__(self, reward_modifier: Callable[[float, dict], float]):
+        super().__init__()
+        self.reward_modifier = reward_modifier
+
+    def apply(self, env: MiniGridEnv) -> MiniGridEnv:
+        """
+        Modify the reward function mid-trajectory.
+        """
+        modified_env = clone_env(env)
+        original_step = modified_env.step
+
+        def modified_step(action):
+            obs, reward, terminated, truncated, info = original_step(action)
+            reward = self.reward_modifier(reward, info)
+            return obs, reward, terminated, truncated, info
+
+        modified_env.step = modified_step
+        return modified_env
 
 
 if __name__ == "__main__":
@@ -283,16 +425,16 @@ if __name__ == "__main__":
     env.reset()
 
     # Create transformation factory
-    factory = IsoDifficultyTransformationFactory()
-
     # Get all transformations
     transformations_list = [
         (env, "Original"),
-        (factory.rotate_env(env), "Rotation (90° CCW)"),
-        (factory.reflect_env(env), "Reflection (Vertical)"),
-        (factory.transpose_env(env), "Transpose Environment"),
-        (factory.start_goal_swap(env), "Start ⟷ Goal Swap"),
-        (factory.remove_dead_end(env), "Remove Dead-End"),
+        (RotateEnv().apply(env), "Rotation (90° CCW)"),
+        (ReflectEnv().apply(env), "Reflection (Vertical)"),
+        (TransposeEnv().apply(env), "Transpose Environment"),
+        (StartGoalSwap().apply(env), "Start ⟷ Goal Swap"),
+        (RemoveDeadEnd().apply(env), "Remove Dead-End"),
+        (GoalDisplacement().apply(env), "Goal Displacement"),
+        (DynamicObstacle().apply(env), "Dynamic Obstacle"),
     ]
 
     # Create figure with subplots (3 rows x 3 columns for better layout)
@@ -322,12 +464,13 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     print("\n" + "=" * 60)
-    print("Visualization saved to 'iso_difficulty_transformations.png'")
     print("=" * 60)
     print("\nKey insights:")
     print("  • Geometric transformations preserve ALL difficulty metrics")
     print("  • Start/Goal swap reverses the path but keeps distance/multiplicity")
     print("  • Dead-end changes add visual variety without")
+    print("  • Goal displacement changes the goal position without")
+    print("  • Dynamic obstacle changes the environment structure without")
     print("    affecting optimal paths or route multiplicity")
     plt.show()
 
