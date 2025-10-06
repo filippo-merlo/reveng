@@ -6,6 +6,7 @@ import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
 from utils import clone_env, compute_optimal_path_length
+import random
 
 
 class IsoDifficultyTransformationFactory:
@@ -233,8 +234,6 @@ class IsoDifficultyTransformationFactory:
                         dead_ends.append((x, y))
 
         # Randomize to avoid bias towards top-left dead-ends
-        import random
-
         random.shuffle(dead_ends)
 
         # 3. Test each candidate modification.
@@ -245,18 +244,17 @@ class IsoDifficultyTransformationFactory:
                 neighbor_cell = env.grid.get(nx, ny)
 
                 if neighbor_cell is not None and neighbor_cell.type == "wall":
-                    # a. Create a temporary environment for testing.
+                    # Create a temporary environment for testing.
                     trial_env = clone_env(env)
 
-                    # b. Apply the change: remove the wall.
+                    # Apply the change: remove the wall.
                     trial_env.grid.set(nx, ny, None)
 
-                    # c. Calculate the new optimal path length.
+                    # Calculate the new optimal path length.
                     new_path_length = compute_optimal_path_length(trial_env)
 
-                    # d. Validate: If the path length is unchanged, we've found a safe modification.
+                    # Validate: If the path length is unchanged, we've found a safe modification.
                     if new_path_length == original_path_length:
-                        # Success! Return the safely modified environment.
                         return trial_env
 
         # 4. If the loop finishes, no safe modification was found.
