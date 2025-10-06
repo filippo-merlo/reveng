@@ -8,6 +8,9 @@ from minigrid.minigrid_env import MiniGridEnv
 from minigrid.wrappers import RGBImgObsWrapper
 from wrappers.rgb_obs_wrappers import OmnidirectionalFogOfWarRGBImgObsWrapper
 from wrappers.text_obs_wrapper import FogOfWarTextWrapper, FullObservabilityTextWrapper
+import reveng.agents as agents
+from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
+from copy import deepcopy
 
 
 class ObsWrapperRegistry:
@@ -43,6 +46,55 @@ def get_all_dead_ends(env: MiniGridEnv) -> list[tuple[int, int]]:
                 if neighbors == 1:
                     dead_ends.append((x, y))
     return dead_ends
+
+
+def clone_env(env: MiniGridEnv) -> MiniGridEnv:
+    """Deep copy the environment while avoiding copying renderer state."""
+
+    window = getattr(env, "window", None)
+    clock = getattr(env, "clock", None)
+
+    if hasattr(env, "window"):
+        env.window = None
+    if hasattr(env, "clock"):
+        env.clock = None
+
+    cloned = deepcopy(env)
+
+    if hasattr(env, "window"):
+        env.window = window
+    if hasattr(env, "clock"):
+        env.clock = clock
+
+    return cloned
+
+
+def compute_optimal_path_length(env: MiniGridEnv) -> float:
+    """
+    Compute the shortest path length using generate_one_trajectory with AlphaStarAgent.
+
+    Args:
+        env: The environment to compute the optimal path for
+
+    Returns:
+        The length of the optimal path, or float('inf') if no path exists
+    """
+    # Create a fresh copy of the environment to avoid side effects
+    test_env = clone_env(env)
+
+    # Create an AlphaStarAgent
+    agent = agents.AlphaStarAgent()
+
+    # Generate a trajectory using the agent
+    trajectory = generate_one_trajectory(
+        env=test_env, observation=None, info=None, agent=agent
+    )
+
+    # The optimal path length is the number of steps in the trajectory
+    if trajectory and trajectory.steps:
+        return len(trajectory.steps)
+
+    return float("inf")  # No path found
 
 
 def run_random_episodes(

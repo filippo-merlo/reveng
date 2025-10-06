@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Callable, Iterable, Tuple
 
 import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
-import reveng.agents as agents
-from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
+from utils import clone_env, compute_optimal_path_length
 
 
 class IsoDifficultyTransformationFactory:
@@ -31,27 +29,8 @@ class IsoDifficultyTransformationFactory:
             "agent_start_dir_user",
         )
 
-    def _clone_env(self, env: MiniGridEnv) -> MiniGridEnv:
-        """Deep copy the environment while avoiding copying renderer state."""
-
-        window = getattr(env, "window", None)
-        clock = getattr(env, "clock", None)
-
-        if hasattr(env, "window"):
-            env.window = None
-        if hasattr(env, "clock"):
-            env.clock = None
-
-        cloned = deepcopy(env)
-
-        if hasattr(env, "window"):
-            env.window = window
-        if hasattr(env, "clock"):
-            env.clock = clock
-
-        return cloned
-
-    def _set_object_positions(self, grid: Grid) -> None:
+    @staticmethod
+    def _set_object_positions(grid: Grid) -> None:
         for x in range(grid.width):
             for y in range(grid.height):
                 obj = grid.get(x, y)
@@ -134,7 +113,7 @@ class IsoDifficultyTransformationFactory:
         return transposed
 
     def rotate_env(self, env: MiniGridEnv) -> MiniGridEnv:
-        rotated_env = self._clone_env(env)
+        rotated_env = clone_env(env)
 
         orig_width = rotated_env.grid.width
         rotated_env.grid = rotated_env.grid.rotate_left()
@@ -153,7 +132,7 @@ class IsoDifficultyTransformationFactory:
         return rotated_env
 
     def reflect_env(self, env: MiniGridEnv) -> MiniGridEnv:
-        reflected_env = self._clone_env(env)
+        reflected_env = clone_env(env)
 
         width = reflected_env.grid.width
         reflected_env.grid = self._reflect_grid_vertically(reflected_env.grid)
@@ -176,7 +155,7 @@ class IsoDifficultyTransformationFactory:
         return reflected_env
 
     def transpose_env(self, env: MiniGridEnv) -> MiniGridEnv:
-        transposed_env = self._clone_env(env)
+        transposed_env = clone_env(env)
 
         transposed_env.grid = self._transpose_grid(transposed_env.grid)
         transposed_env.width = transposed_env.grid.width
@@ -198,7 +177,7 @@ class IsoDifficultyTransformationFactory:
         Swap the start and goal positions.
         This preserves optimal path distance and route multiplicity by reversing the path.
         """
-        swapped_env = self._clone_env(env)
+        swapped_env = clone_env(env)
 
         # Import Goal from minigrid
         from minigrid.core.world_object import Goal
@@ -228,41 +207,14 @@ class IsoDifficultyTransformationFactory:
 
         return swapped_env
 
-    def _compute_optimal_path_length(self, env: MiniGridEnv) -> float:
-        """
-        Compute shortest path length using generate_one_trajectory with AlphaStarAgent.
-
-        Args:
-            env: The environment to compute the optimal path for
-
-        Returns:
-            The length of the optimal path, or float('inf') if no path exists
-        """
-        # Create a fresh copy of the environment to avoid side effects
-        test_env = self._clone_env(env)
-
-        # Create an AlphaStarAgent
-        agent = agents.AlphaStarAgent()
-
-        # Generate a trajectory using the agent
-        trajectory = generate_one_trajectory(
-            env=test_env, observation=None, info=None, agent=agent
-        )
-
-        # The optimal path length is the number of steps in the trajectory
-        if trajectory and trajectory.steps:
-            return len(trajectory.steps)
-
-        return float("inf")  # No path found
-
     def remove_dead_end(self, env: MiniGridEnv) -> MiniGridEnv:
         """
         Removes a wall at a dead-end, ensuring the optimal path length remains unchanged.
         """
         # 1. Establish the baseline optimal path length for the original environment.
-        original_path_length = self._compute_optimal_path_length(env)
+        original_path_length = compute_optimal_path_length(env)
 
-        varied_env = self._clone_env(env)
+        varied_env = clone_env(env)
 
         # 2. Find all dead-end cells (cells with only one empty neighbor).
         dead_ends = []
@@ -294,13 +246,13 @@ class IsoDifficultyTransformationFactory:
 
                 if neighbor_cell is not None and neighbor_cell.type == "wall":
                     # a. Create a temporary environment for testing.
-                    trial_env = self._clone_env(env)
+                    trial_env = clone_env(env)
 
                     # b. Apply the change: remove the wall.
                     trial_env.grid.set(nx, ny, None)
 
                     # c. Calculate the new optimal path length.
-                    new_path_length = self._compute_optimal_path_length(trial_env)
+                    new_path_length = compute_optimal_path_length(trial_env)
 
                     # d. Validate: If the path length is unchanged, we've found a safe modification.
                     if new_path_length == original_path_length:
