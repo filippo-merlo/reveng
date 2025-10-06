@@ -5,7 +5,12 @@ from typing import Callable, Iterable, Tuple
 import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
-from utils import clone_env, compute_optimal_path_length
+from reveng.environment_generator.utils import (
+    clone_env,
+    compute_optimal_path_length,
+    get_all_dead_ends,
+    is_internal_point,
+)
 import random
 
 
@@ -218,20 +223,7 @@ class IsoDifficultyTransformationFactory:
         varied_env = clone_env(env)
 
         # 2. Find all dead-end cells (cells with only one empty neighbor).
-        dead_ends = []
-        for x in range(1, varied_env.width - 1):
-            for y in range(1, varied_env.height - 1):
-                if varied_env.grid.get(x, y) is None:
-                    # Count empty neighbors
-                    neighbors = 0
-                    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                        nx, ny = x + dx, y + dy
-                        if varied_env.grid.get(nx, ny) is None:
-                            neighbors += 1
-
-                    # A dead-end is an empty cell with exactly one empty neighbor.
-                    if neighbors == 1:
-                        dead_ends.append((x, y))
+        dead_ends = get_all_dead_ends(varied_env)
 
         # Randomize to avoid bias towards top-left dead-ends
         random.shuffle(dead_ends)
@@ -243,7 +235,11 @@ class IsoDifficultyTransformationFactory:
                 nx, ny = x + dx, y + dy
                 neighbor_cell = env.grid.get(nx, ny)
 
-                if neighbor_cell is not None and neighbor_cell.type == "wall":
+                if (
+                    neighbor_cell is not None
+                    and neighbor_cell.type == "wall"
+                    and is_internal_point(nx, ny, varied_env)
+                ):
                     # Create a temporary environment for testing.
                     trial_env = clone_env(env)
 

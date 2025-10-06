@@ -39,13 +39,32 @@ def get_all_dead_ends(env: MiniGridEnv) -> list[tuple[int, int]]:
                 neighbors = 0
                 for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                     nx, ny = x + dx, y + dy
-                    if env.grid.get(nx, ny) is None:
+                    if (
+                        env.grid.get(nx, ny) is None
+                        or env.grid.get(nx, ny).type == "goal"
+                    ):
                         neighbors += 1
 
                 # Dead end has exactly 1 neighbor
                 if neighbors == 1:
                     dead_ends.append((x, y))
     return dead_ends
+
+
+def is_internal_point(nx: int, ny: int, env) -> bool:
+    """
+    Checks if a point (nx, ny) is an internal point of the environment,
+    meaning it's not on the boundary (i.e., not at x=0, y=0, x=width-1, or y=height-1).
+
+    Args:
+        nx (int): The x-coordinate to check.
+        ny (int): The y-coordinate to check.
+        env: An env
+
+    Returns:
+        bool: True if the point is internal, False otherwise.
+    """
+    return nx > 0 and ny > 0 and nx < env.width - 1 and ny < env.height - 1
 
 
 def clone_env(env: MiniGridEnv) -> MiniGridEnv:
