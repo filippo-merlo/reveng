@@ -66,7 +66,6 @@ class LLMAgent(Agent, BaseLLMInterface):
             action = response.action
 
             logger.info(f"LLM selected action {action}: {response.explanation}")
-            breakpoint()
             return action, {
                 "agents_name": self.name,
                 "llm_response": action,
