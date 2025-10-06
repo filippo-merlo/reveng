@@ -189,6 +189,7 @@ cython_debug/
 # .vscode/
 
 .github/
+WARP.md
 
 # Ruff stuff:
 .ruff_cache/
@@ -207,3 +208,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+.env/
+
+**/.DS_Store

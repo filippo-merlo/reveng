@@ -1,6 +1,7 @@
 import json
 import typing as t
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Dict
 
@@ -18,6 +19,13 @@ class Trajectory:
     steps: list[Step]
     action_space: t.List[str]
     final_reward: t.Optional[float]
+
+
+class Action(Enum):
+    LEFT = 0
+    RIGHT = 1
+    UP = 2
+    DOWN = 3
 
 
 def load_trajectory_from_file(file_path: str | Path) -> Trajectory:
