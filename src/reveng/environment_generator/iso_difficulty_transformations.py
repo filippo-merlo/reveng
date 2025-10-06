@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Callable, Iterable, Tuple
 
 import numpy as np
 from minigrid.core.grid import Grid
 from minigrid.minigrid_env import MiniGridEnv
-
-from reveng.environment_generator.utils import get_all_dead_ends
+from reveng.environment_generator.utils import (
+    clone_env,
+    compute_optimal_path_length,
+    get_all_dead_ends,
+    is_internal_point,
+)
+import random
 
 
 class IsoDifficultyTransformationFactory:
     def __init__(self):
         self.transformations = {
-            "rotation": self.rotation_transformation,
-            "reflection": self.reflection_transformation,
-            "geometry": self.geometry_transformation,
-            "start_goal_swap": self.start_goal_swap_transformation,
-            "dead_end_variation": self.dead_end_variation_transformation,
+            "rotation": self.rotate_env,
+            "reflection": self.reflect_env,
+            "transpose": self.transpose_env,
+            "start_goal_swap": self.start_goal_swap,
+            "remove_dead_end": self.remove_dead_end,
         }
 
         self._position_attrs = (
@@ -31,27 +35,8 @@ class IsoDifficultyTransformationFactory:
             "agent_start_dir_user",
         )
 
-    def _clone_env(self, env: MiniGridEnv) -> MiniGridEnv:
-        """Deep copy the environment while avoiding copying renderer state."""
-
-        window = getattr(env, "window", None)
-        clock = getattr(env, "clock", None)
-
-        if hasattr(env, "window"):
-            env.window = None
-        if hasattr(env, "clock"):
-            env.clock = None
-
-        cloned = deepcopy(env)
-
-        if hasattr(env, "window"):
-            env.window = window
-        if hasattr(env, "clock"):
-            env.clock = clock
-
-        return cloned
-
-    def _set_object_positions(self, grid: Grid) -> None:
+    @staticmethod
+    def _set_object_positions(grid: Grid) -> None:
         for x in range(grid.width):
             for y in range(grid.height):
                 obj = grid.get(x, y)
@@ -133,8 +118,8 @@ class IsoDifficultyTransformationFactory:
                 transposed.set(y, x, grid.get(x, y))
         return transposed
 
-    def rotation_transformation(self, env: MiniGridEnv) -> MiniGridEnv:
-        rotated_env = self._clone_env(env)
+    def rotate_env(self, env: MiniGridEnv) -> MiniGridEnv:
+        rotated_env = clone_env(env)
 
         orig_width = rotated_env.grid.width
         rotated_env.grid = rotated_env.grid.rotate_left()
@@ -152,8 +137,8 @@ class IsoDifficultyTransformationFactory:
 
         return rotated_env
 
-    def reflection_transformation(self, env: MiniGridEnv) -> MiniGridEnv:
-        reflected_env = self._clone_env(env)
+    def reflect_env(self, env: MiniGridEnv) -> MiniGridEnv:
+        reflected_env = clone_env(env)
 
         width = reflected_env.grid.width
         reflected_env.grid = self._reflect_grid_vertically(reflected_env.grid)
@@ -175,30 +160,30 @@ class IsoDifficultyTransformationFactory:
 
         return reflected_env
 
-    def geometry_transformation(self, env: MiniGridEnv) -> MiniGridEnv:
-        geometry_env = self._clone_env(env)
+    def transpose_env(self, env: MiniGridEnv) -> MiniGridEnv:
+        transposed_env = clone_env(env)
 
-        geometry_env.grid = self._transpose_grid(geometry_env.grid)
-        geometry_env.width = geometry_env.grid.width
-        geometry_env.height = geometry_env.grid.height
+        transposed_env.grid = self._transpose_grid(transposed_env.grid)
+        transposed_env.width = transposed_env.grid.width
+        transposed_env.height = transposed_env.grid.height
 
-        self._set_object_positions(geometry_env.grid)
+        self._set_object_positions(transposed_env.grid)
 
         dir_map = {0: 1, 1: 0, 2: 3, 3: 2}
 
-        self._update_positions(geometry_env, lambda pos: (pos[1], pos[0]))
+        self._update_positions(transposed_env, lambda pos: (pos[1], pos[0]))
         self._update_directions(
-            geometry_env, lambda direction: dir_map.get(direction, direction)
+            transposed_env, lambda direction: dir_map.get(direction, direction)
         )
 
-        return geometry_env
+        return transposed_env
 
-    def start_goal_swap_transformation(self, env: MiniGridEnv) -> MiniGridEnv:
+    def start_goal_swap(self, env: MiniGridEnv) -> MiniGridEnv:
         """
         Swap the start and goal positions.
         This preserves optimal path distance and route multiplicity by reversing the path.
         """
-        swapped_env = self._clone_env(env)
+        swapped_env = clone_env(env)
 
         # Import Goal from minigrid
         from minigrid.core.world_object import Goal
@@ -228,44 +213,50 @@ class IsoDifficultyTransformationFactory:
 
         return swapped_env
 
-    def dead_end_variation_transformation(self, env: MiniGridEnv) -> MiniGridEnv:
+    def remove_dead_end(self, env: MiniGridEnv) -> MiniGridEnv:
         """
-        Add or remove walls in dead-end areas that are far from optimal paths.
-        This changes the visual appearance without affecting path metrics.
+        Removes a wall at a dead-end, ensuring the optimal path length remains unchanged.
         """
+        # 1. Establish the baseline optimal path length for the original environment.
+        original_path_length = compute_optimal_path_length(env)
 
-        varied_env = self._clone_env(env)
+        varied_env = clone_env(env)
 
-        # Find all dead-end cells (cells with only one neighbor)
-
-        # Randomly extend some dead ends by one cell
+        # 2. Find all dead-end cells (cells with only one empty neighbor).
         dead_ends = get_all_dead_ends(varied_env)
-        for dead_end in dead_ends[
-            : len(dead_ends) // 3
-        ]:  # Modify 1/3 of eligible dead ends
-            x, y = dead_end
-            # Try to remove a wall adjacent to the dead end
+
+        # Randomize to avoid bias towards top-left dead-ends
+        random.shuffle(dead_ends)
+
+        # 3. Test each candidate modification.
+        for x, y in dead_ends:
+            # Find the adjacent wall that creates the dead-end.
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
+                neighbor_cell = env.grid.get(nx, ny)
+
                 if (
-                    varied_env.grid.get(nx, ny) is not None
-                    and varied_env.grid.get(nx, ny).type == "wall"
-                    # Don't remove walls at the edges of the grid
-                    and (
-                        nx != 0
-                        and ny != 0
-                        and nx != varied_env.width - 1
-                        and ny != varied_env.height - 1
-                    )
+                    neighbor_cell is not None
+                    and neighbor_cell.type == "wall"
+                    and is_internal_point(nx, ny, varied_env)
                 ):
-                    # Check if we can safely remove this wall
-                    varied_env.grid.set(nx, ny, None)
-                    break
+                    # Create a temporary environment for testing.
+                    trial_env = clone_env(env)
 
-        if varied_env.grid == env.grid:
-            raise ValueError("No dead-end variation was applied")
+                    # Apply the change: remove the wall.
+                    trial_env.grid.set(nx, ny, None)
 
-        return varied_env
+                    # Calculate the new optimal path length.
+                    new_path_length = compute_optimal_path_length(trial_env)
+
+                    # Validate: If the path length is unchanged, we've found a safe modification.
+                    if new_path_length == original_path_length:
+                        return trial_env
+
+        # 4. If the loop finishes, no safe modification was found.
+        raise ValueError(
+            "No dead-end variation was applied that preserved the optimal path."
+        )
 
     def get_all_transformations(self, env: MiniGridEnv) -> list[MiniGridEnv]:
         return [
@@ -282,7 +273,7 @@ if __name__ == "__main__":
     # Create a sample environment
     print("Creating original environment...")
     env = Simple2DNavigationEnv(
-        size=20,
+        size=11,
         complexity=1.0,
         agent_start_pos=(1, 1),
         agent_start_dir=0,
@@ -297,11 +288,11 @@ if __name__ == "__main__":
     # Get all transformations
     transformations_list = [
         (env, "Original"),
-        (factory.rotation_transformation(env), "Rotation (90° CCW)"),
-        (factory.reflection_transformation(env), "Reflection (Vertical)"),
-        (factory.geometry_transformation(env), "Geometry (Transpose)"),
-        (factory.start_goal_swap_transformation(env), "Start ⟷ Goal Swap"),
-        (factory.dead_end_variation_transformation(env), "Dead-End Variation"),
+        (factory.rotate_env(env), "Rotation (90° CCW)"),
+        (factory.reflect_env(env), "Reflection (Vertical)"),
+        (factory.transpose_env(env), "Transpose Environment"),
+        (factory.start_goal_swap(env), "Start ⟷ Goal Swap"),
+        (factory.remove_dead_end(env), "Remove Dead-End"),
     ]
 
     # Create figure with subplots (3 rows x 3 columns for better layout)
