@@ -140,7 +140,7 @@ def run_baseline(
                         max_steps_per_trajectory=max_steps_per_trajectory
                         or env.max_steps,
                         reset_between_trajectories=True,
-                        metadata=traj_metadata,
+                        traj_metadata=traj_metadata,
                     )
 
                     # Save each trajectory

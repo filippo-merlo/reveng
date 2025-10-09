@@ -33,6 +33,10 @@ class EnvTransformation(ABC):
     def __call__(self, env: MiniGridEnv) -> MiniGridEnv:
         return self.apply(env)
 
+    @property
+    def __name__(self) -> str:
+        return self.__class__.__name__
+
     @staticmethod
     def _set_object_positions(grid: Grid) -> None:
         for x in range(grid.width):

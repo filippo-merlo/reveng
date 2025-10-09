@@ -37,7 +37,7 @@ def generate_trajectories(
     save_dir: Optional[str] = None,
     save_prefix: str = "trajectory",
     save_indent: int = 2,
-    metadata: Optional[Dict] = None,
+    traj_metadata: Optional[Dict] = None,
 ) -> List[Trajectory]:
     """
     Define the interface to generate Trajectory objects by running an agent in an environment.
@@ -139,7 +139,7 @@ def generate_trajectories(
             info=info,
             agent=agent,
             max_steps_per_trajectory=max_steps_per_trajectory,
-            metadata=metadata,
+            traj_metadata=traj_metadata,
         )
 
         trajectories.append(traj_obj)
@@ -158,7 +158,7 @@ def generate_one_trajectory(
     info,
     agent: Agent,
     max_steps_per_trajectory: Optional[int] = None,
-    metadata: Optional[Dict] = None,
+    traj_metadata: Optional[Dict] = None,
 ):
     steps: List[Step] = []
     total_reward = 0.0
@@ -201,7 +201,7 @@ def generate_one_trajectory(
         steps=steps,
         action_space=[],
         final_reward=total_reward,
-        metadata=metadata,
+        traj_metadata=traj_metadata,
     )
     return traj_obj
 
