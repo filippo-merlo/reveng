@@ -30,6 +30,9 @@ class EnvTransformation(ABC):
             "agent_start_dir_user",
         )
 
+    def __call__(self, env: MiniGridEnv) -> MiniGridEnv:
+        return self.apply(env)
+
     @staticmethod
     def _set_object_positions(grid: Grid) -> None:
         for x in range(grid.width):
@@ -405,6 +408,23 @@ class RewardStructureChange(EnvTransformation):
 
         modified_env.step = modified_step
         return modified_env
+
+
+class IsoDifficultyTransformationFactory:
+    def __init__(self):
+        self.transformations = [
+            RotateEnv(),
+            ReflectEnv(),
+            TransposeEnv(),
+            # StartGoalSwap(),
+            # RemoveDeadEnd(),
+            # GoalDisplacement(),
+            # DynamicObstacle(),
+            # RewardStructureChange(),
+        ]
+
+    def get_transformations(self):
+        return self.transformations
 
 
 if __name__ == "__main__":

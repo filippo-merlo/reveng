@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional
 
 from reveng.agents.alpha_start_agent import Agent, AlphaStarAgent, RandomAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.iso_difficulty_transformations import (
+from reveng.environment_generator.env_transformations import (
     IsoDifficultyTransformationFactory,
 )
 from reveng.trajectory_generator.trajectory_generator import generate_trajectories
@@ -284,12 +284,7 @@ if __name__ == "__main__":
     perturbations = None
     if args.use_perturbations:
         factory = IsoDifficultyTransformationFactory()
-        perturbations = [
-            factory.rotate_env,
-            factory.reflect_env,
-            factory.transpose_env,
-            factory.start_goal_swap,
-        ]
+        perturbations = factory.get_transformations()
 
     # Run experiment
     run_baseline(
