@@ -122,7 +122,7 @@ def run_baseline(
                     # Use the environment directly from dataset
                     env = base_env
 
-                    metadata = {
+                    traj_metadata = {
                         "grid_id": grid_id,
                         "perturbation_name": perturbation_name,
                         "agent_name": agent.name,
@@ -140,7 +140,7 @@ def run_baseline(
                         max_steps_per_trajectory=max_steps_per_trajectory
                         or env.max_steps,
                         reset_between_trajectories=True,
-                        metadata=metadata,
+                        metadata=traj_metadata,
                     )
 
                     # Save each trajectory
