@@ -70,7 +70,7 @@ class PreferenceElicitor(BaseLLMInterface):
         logger.debug(f"Prompt for trajectory {trajectory_id}:\n{prompt}")
 
         try:
-            response, cost = self._make_completion_request(prompt)
+            response, cost, _ = self._make_completion_request(prompt)
             content = response.strip() if isinstance(response, str) else str(response)
 
             # Track costs
@@ -130,7 +130,7 @@ class PreferenceElicitor(BaseLLMInterface):
         logger.debug(f"Comparison prompt:\n{prompt}")
 
         try:
-            response, cost = self._make_completion_request(prompt)
+            response, cost, _ = self._make_completion_request(prompt)
             content = response.strip() if isinstance(response, str) else str(response)
 
             # Track costs

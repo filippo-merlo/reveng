@@ -1,3 +1,5 @@
+import json
+
 from reveng.agents.alpha_start_agent import AlphaStarAgent
 from reveng.agents.llm_agent import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
@@ -43,8 +45,12 @@ llm_agent = LLMAgent(
 print("\n" + "=" * 50)
 print("Eliciting LLM policy...")
 print("=" * 50)
-llm_policy = elicit_policy(env, llm_agent)
+llm_policy, llm_policy_metadata = elicit_policy(env, llm_agent)
 print(llm_agent.get_cost_summary())
+json.dump(
+    llm_policy_metadata,
+    open("src/reveng/policy_inspector/policy_maps/llm_policy_metadata.json", "w"),
+)
 
 # Visualize and save A* policy as PNG
 visualize_policy(

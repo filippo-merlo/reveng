@@ -40,6 +40,41 @@ class LLMAgent(Agent, BaseLLMInterface):
         self.total_cost = 0.0
         self.call_count = 0
 
+    def _serialize_logprobs(self, logprobs_obj: Any) -> Optional[list[dict]]:
+        """Convert model logprobs object(s) to JSON-serializable dictionaries.
+
+        The LiteLLM/OpenAI responses expose rich objects like ChatCompletionTokenLogprob
+        and TopLogprob. Those are not JSON-serializable out of the box. This helper
+        extracts the relevant fields into plain Python types.
+        """
+        if logprobs_obj is None:
+            return None
+
+        def serialize_top(top: Any) -> dict:
+            return {
+                "token": getattr(top, "token", None),
+                "bytes": getattr(top, "bytes", None),
+                "logprob": getattr(top, "logprob", None),
+                "token_id": getattr(top, "token_id", None),
+            }
+
+        def serialize_token_logprob(item: Any) -> dict:
+            top_list = getattr(item, "top_logprobs", None) or []
+            return {
+                "token": getattr(item, "token", None),
+                "bytes": getattr(item, "bytes", None),
+                "logprob": getattr(item, "logprob", None),
+                "token_id": getattr(item, "token_id", None),
+                "text_offset": getattr(item, "text_offset", None),
+                "top_logprobs": [serialize_top(t) for t in top_list],
+            }
+
+        try:
+            return [serialize_token_logprob(x) for x in list(logprobs_obj)]
+        except Exception:
+            # Fall back: if it's already a list[dict] or otherwise JSON-ready, return as-is
+            return logprobs_obj  # type: ignore[return-value]
+
     def select_action(
         self, env: MiniGridEnv, return_logprobs: bool = False, **kwargs: Any
     ) -> Tuple[int, dict]:
@@ -66,6 +101,7 @@ class LLMAgent(Agent, BaseLLMInterface):
         try:
             extra_kwargs = {}
             response_format = ActionResponse
+            logprobs_raw = None
             if return_logprobs:
                 extra_kwargs["logprobs"] = True
                 extra_kwargs["top_logprobs"] = 5
@@ -89,19 +125,20 @@ class LLMAgent(Agent, BaseLLMInterface):
             self.call_count += 1
 
             if return_logprobs:
-                logprobs = raw_response.choices[0].logprobs
+                logprobs_raw = raw_response.choices[0].logprobs.content
+                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
 
             logger.info(
                 f"LLM selected action {action_response.action}: {action_response.confidence} (cost: ${cost:.6f}, total: ${self.total_cost:.6f})"
             )
             return action_response.action.value, {
                 "agents_name": self.name,
-                "llm_response": action_response.action,
+                "llm_response": action_response.action.value,
                 "confidence": action_response.confidence,
                 "call_cost": cost,
                 "total_cost": self.total_cost,
                 "call_count": self.call_count,
-                "logprobs": logprobs if logprobs else None,
+                "logprobs": logprobs_serialized,
             }
 
         except Exception as e:

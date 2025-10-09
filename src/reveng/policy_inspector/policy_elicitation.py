@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Tuple
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -7,7 +7,9 @@ from minigrid.minigrid_env import MiniGridEnv
 from tqdm import tqdm
 
 
-def elicit_policy(env: MiniGridEnv, agent: Any) -> List[List[int]]:
+def elicit_policy(
+    env: MiniGridEnv, agent: Any
+) -> Tuple[List[List[int]], List[List[dict]]]:
     """
     Elicit the policy of an agent by querying its action preference at each valid position.
 
@@ -21,6 +23,7 @@ def elicit_policy(env: MiniGridEnv, agent: Any) -> List[List[int]]:
     """
     width, height = env.grid.width, env.grid.height
     policy = [[-1 for _ in range(width)] for _ in range(height)]
+    policy_metadata = [[-1 for _ in range(width)] for _ in range(height)]
 
     # Save original agent position to restore later
     original_pos = (
@@ -40,16 +43,19 @@ def elicit_policy(env: MiniGridEnv, agent: Any) -> List[List[int]]:
                     env.agent_pos = (i, j)
                     # Query agent for preferred action at this position
                     if agent.__class__.__name__ == "LLMAgent":
-                        action, _ = agent.select_action(env, return_logprobs=True)
+                        action, metadata = agent.select_action(
+                            env, return_logprobs=True
+                        )
                     else:
-                        action, _ = agent.select_action(env)
+                        action, metadata = agent.select_action(env)
+                    policy_metadata[j][i] = metadata
                     policy[j][i] = action
                 pbar.update(1)
 
     # Restore original agent position
     env.agent_pos = original_pos
 
-    return policy
+    return policy, policy_metadata
 
 
 def visualize_policy(

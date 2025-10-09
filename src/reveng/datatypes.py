@@ -28,6 +28,19 @@ class Action(Enum):
     UP = 2
     DOWN = 3
 
+    def to_json(self) -> int:
+        """Convert Action to JSON-serializable value."""
+        return self.value
+
+    @classmethod
+    def from_json(cls, value: int) -> "Action":
+        """Create Action from JSON value."""
+        return cls(value)
+
+    def __json__(self) -> int:
+        """Support for JSON serialization."""
+        return self.value
+
 
 def load_trajectory_from_file(file_path: str | Path) -> Trajectory:
     """Read a trajectory from disk."""
