@@ -6,7 +6,7 @@ from reveng.policy_inspector.policy_elicitation import elicit_policy, visualize_
 # Create a simple environment for policy elicitation
 print("Creating environment...")
 env = Simple2DNavigationEnv(
-    size=7,  # Small grid for easier visualization
+    size=4,  # Small grid for easier visualization
     complexity=0.3,  # Some walls but not too complex
     render_mode=None,  # No rendering needed for policy elicitation
 )
@@ -44,6 +44,7 @@ print("\n" + "=" * 50)
 print("Eliciting LLM policy...")
 print("=" * 50)
 llm_policy = elicit_policy(env, llm_agent)
+print(llm_agent.get_cost_summary())
 
 # Visualize and save A* policy as PNG
 visualize_policy(

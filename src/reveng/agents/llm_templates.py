@@ -1,6 +1,6 @@
 """Pydantic models for LLM judge scoring responses."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from reveng.datatypes import Action
 
@@ -17,4 +17,11 @@ class ActionResponse(BaseModel):
         le=1.0,
         description="Confidence level of your ability to reach the goal square",
     )
-    # explanation: str = Field(description="Brief explanation of the action choice")
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def validate_action(cls, v):
+        """Convert int to Action enum if needed."""
+        if isinstance(v, int):
+            return Action(v)
+        return v

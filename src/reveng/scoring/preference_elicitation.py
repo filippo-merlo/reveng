@@ -41,6 +41,10 @@ class PreferenceElicitor(BaseLLMInterface):
             Path(__file__).parent / "templates" / "trajectory_comparison.j2"
         )
 
+        # Cost tracking
+        self.total_cost = 0.0
+        self.call_count = 0
+
     def evaluate_single_trajectory(
         self, trajectory: Trajectory, trajectory_id: str = "trajectory"
     ) -> PreferenceResult:
@@ -66,8 +70,13 @@ class PreferenceElicitor(BaseLLMInterface):
         logger.debug(f"Prompt for trajectory {trajectory_id}:\n{prompt}")
 
         try:
-            response = self._make_completion_request(prompt)
-            content = (response.choices[0].message.content or "").strip()
+            response, cost = self._make_completion_request(prompt)
+            content = response.strip() if isinstance(response, str) else str(response)
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+            logger.info(f"Evaluation cost: ${cost:.6f}, total: ${self.total_cost:.6f}")
 
             # Parse response to extract assessment and reasoning
             assessment, reasoning = self._parse_single_evaluation_response(content)
@@ -121,8 +130,13 @@ class PreferenceElicitor(BaseLLMInterface):
         logger.debug(f"Comparison prompt:\n{prompt}")
 
         try:
-            response = self._make_completion_request(prompt)
-            content = (response.choices[0].message.content or "").strip()
+            response, cost = self._make_completion_request(prompt)
+            content = response.strip() if isinstance(response, str) else str(response)
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+            logger.info(f"Comparison cost: ${cost:.6f}, total: ${self.total_cost:.6f}")
 
             # Parse response to extract preference details
             preferred, strength, reasoning = self._parse_comparison_response(content)
@@ -248,6 +262,19 @@ class PreferenceElicitor(BaseLLMInterface):
         reasoning = content  # For now, return the full response as reasoning
 
         return preferred, strength, reasoning
+
+    def get_cost_summary(self) -> dict:
+        """Get a summary of costs incurred by this elicitor.
+
+        Returns:
+            Dictionary with total_cost, call_count, and avg_cost_per_call
+        """
+        avg_cost = self.total_cost / self.call_count if self.call_count > 0 else 0.0
+        return {
+            "total_cost": self.total_cost,
+            "call_count": self.call_count,
+            "avg_cost_per_call": avg_cost,
+        }
 
 
 def _parse_args() -> argparse.Namespace:

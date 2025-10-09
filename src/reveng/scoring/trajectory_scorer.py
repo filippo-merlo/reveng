@@ -35,10 +35,16 @@ class TrajectoryScorer(BaseLLMInterface):
         """
         super().__init__(model_name, template_path, temperature)
         self.top_logprobs = top_logprobs
+        # Cost tracking
+        self.total_cost = 0.0
+        self.call_count = 0
 
     def score_trajectory_with_probs(self, trajectory: Trajectory) -> Dict[str, object]:
         """Return aggregated log probability metrics for a trajectory."""
         logger.info(f"Scoring trajectory with {len(trajectory.steps)} steps")
+
+        # Track initial cost to calculate trajectory-specific cost
+        initial_cost = self.total_cost
 
         results: Dict[str, object] = {
             "model": self.model_name,
@@ -65,6 +71,12 @@ class TrajectoryScorer(BaseLLMInterface):
 
         results["step_scores"] = step_scores
         results["total_logprob"] = total_logprob
+        results["total_cost"] = self.total_cost - initial_cost
+
+        logger.info(
+            f"Trajectory scoring complete. Total cost: ${results['total_cost']:.6f}"
+        )
+
         return results
 
     def _score_step(
@@ -84,7 +96,7 @@ class TrajectoryScorer(BaseLLMInterface):
             )
 
         try:
-            response = self._completion_with_retry(
+            response, cost = self._completion_with_retry(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 logprobs=True,
@@ -92,6 +104,11 @@ class TrajectoryScorer(BaseLLMInterface):
                 temperature=self.temperature,
                 allowed_openai_params=["logprobs", "top_logprobs"],
             )
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+
         except Exception as exc:
             logger.error(f"Model request failed for step {step_index}: {exc}")
             return {
@@ -109,7 +126,7 @@ class TrajectoryScorer(BaseLLMInterface):
         taken_action_logprob = action_logprobs.get(current_step.action, float("-inf"))
 
         logger.debug(
-            f"Step {step_index} action {current_step.action} logprob {taken_action_logprob}"
+            f"Step {step_index} action {current_step.action} logprob {taken_action_logprob} (cost: ${cost:.6f})"
         )
 
         return {
@@ -118,6 +135,7 @@ class TrajectoryScorer(BaseLLMInterface):
             "logprob": taken_action_logprob,
             "available_logprobs": action_logprobs,
             "model_response": content,
+            "cost": cost,
         }
 
     def _generate_prompt(
@@ -185,6 +203,19 @@ class TrajectoryScorer(BaseLLMInterface):
             if action in candidates:
                 ordered[action] = candidates[action]
         return ordered
+
+    def get_cost_summary(self) -> dict:
+        """Get a summary of costs incurred by this scorer.
+
+        Returns:
+            Dictionary with total_cost, call_count, and avg_cost_per_call
+        """
+        avg_cost = self.total_cost / self.call_count if self.call_count > 0 else 0.0
+        return {
+            "total_cost": self.total_cost,
+            "call_count": self.call_count,
+            "avg_cost_per_call": avg_cost,
+        }
 
 
 def _parse_args() -> argparse.Namespace:

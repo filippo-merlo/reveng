@@ -4,6 +4,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch
 from minigrid.minigrid_env import MiniGridEnv
+from tqdm import tqdm
 
 
 def elicit_policy(env: MiniGridEnv, agent: Any) -> List[List[int]]:
@@ -26,16 +27,24 @@ def elicit_policy(env: MiniGridEnv, agent: Any) -> List[List[int]]:
         env.agent_pos.copy() if hasattr(env.agent_pos, "copy") else tuple(env.agent_pos)
     )
 
-    for i in range(width):
-        for j in range(height):
-            cell = env.grid.get(i, j)
-            # Only query policy for empty cells or cells that can be overlapped (like goal)
-            if cell is None or (hasattr(cell, "can_overlap") and cell.can_overlap()):
-                # Temporarily set agent position to this cell
-                env.agent_pos = (i, j)
-                # Query agent for preferred action at this position
-                action, _ = agent.select_action(env)
-                policy[j][i] = action
+    total_cells = width * height
+    with tqdm(total=total_cells, desc="Eliciting policy") as pbar:
+        for i in range(width):
+            for j in range(height):
+                cell = env.grid.get(i, j)
+                # Only query policy for empty cells or cells that can be overlapped (like goal)
+                if cell is None or (
+                    hasattr(cell, "can_overlap") and cell.can_overlap()
+                ):
+                    # Temporarily set agent position to this cell
+                    env.agent_pos = (i, j)
+                    # Query agent for preferred action at this position
+                    if agent.__class__.__name__ == "LLMAgent":
+                        action, _ = agent.select_action(env, return_logprobs=True)
+                    else:
+                        action, _ = agent.select_action(env)
+                    policy[j][i] = action
+                pbar.update(1)
 
     # Restore original agent position
     env.agent_pos = original_pos

@@ -1,11 +1,11 @@
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import litellm
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
-from litellm import completion
+from litellm import completion, completion_cost
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
@@ -56,8 +56,14 @@ class BaseLLMInterface:
         )
         return env.get_template(template_path.name)
 
+    def render_template(self, **kwargs) -> str:
+        """Render the template with given context."""
+        if self._template is None:
+            raise ValueError("No template provided")
+        return self._template.render(**kwargs)
+
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(5),
         # 5-120 seconds between attempts, to help avoid rate limiting
         wait=wait_random_exponential(multiplier=1, min=5, max=120),
         reraise=True,
@@ -66,50 +72,61 @@ class BaseLLMInterface:
         self,
         response_format: Optional[BaseModel] = None,
         **kwargs,
-    ):
-        """Make LLM completion request with retry logic."""
+    ) -> Tuple[any, float]:
+        """Make LLM completion request with retry logic.
+
+        Returns:
+            Tuple of (response_object, cost_in_usd)
+        """
         response = completion(
             **kwargs,
             response_format=response_format,
         )
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("Empty response from model")
 
-        if response_format:
-            try:
-                return response_format.model_validate_json(content)
-            except Exception as exc:
-                logger.error(f"Failed to parse response: {exc}")
-                logger.debug(
-                    f"Raw response content: {response.choices[0].message.content}"
-                )
-                raise ValueError(f"Invalid response format from model: {exc}")
+        # Calculate cost using litellm's completion_cost function
+        try:
+            cost = completion_cost(completion_response=response)
+        except Exception as e:
+            logger.warning(f"Failed to calculate cost: {e}")
+            cost = 0.0
 
-        return content
+        return response, cost
 
     def _make_completion_request(
         self,
         prompt: str,
         response_format: Optional[BaseModel] = None,
         **kwargs,
-    ):
-        """Make a completion request with standard parameters."""
+    ) -> Tuple[any, float, any]:
+        """Make a completion request with standard parameters.
+
+        Returns:
+            Tuple of (parsed_response, cost_in_usd)
+        """
         try:
-            response = self._completion_with_retry(
+            response, cost = self._completion_with_retry(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.temperature,
                 response_format=response_format,
                 **kwargs,
             )
-            return response
+
+            # Parse response
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("Empty response from model")
+
+            if response_format:
+                try:
+                    parsed_response = response_format.model_validate_json(content)
+                    return parsed_response, cost, response
+                except Exception as exc:
+                    logger.error(f"Failed to parse response: {exc}")
+                    logger.debug(f"Raw response content: {content}")
+                    raise ValueError(f"Invalid response format from model: {exc}")
+
+            return content, cost, response
         except Exception as exc:
             logger.error(f"Model request failed: {exc}")
             raise
-
-    def render_template(self, **kwargs) -> str:
-        """Render the template with given context."""
-        if self._template is None:
-            raise ValueError("No template provided")
-        return self._template.render(**kwargs)

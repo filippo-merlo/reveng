@@ -36,8 +36,13 @@ class LLMAgent(Agent, BaseLLMInterface):
             temperature=temperature,
             template_path=Path(__file__).parent / "prompt_templates" / "maze.j2",
         )
+        # Cost tracking
+        self.total_cost = 0.0
+        self.call_count = 0
 
-    def select_action(self, env: MiniGridEnv, **kwargs: Any) -> Tuple[int, dict]:
+    def select_action(
+        self, env: MiniGridEnv, return_logprobs: bool = False, **kwargs: Any
+    ) -> Tuple[int, dict]:
         """
         Select an action using the LLM based on the current environment state.
 
@@ -59,18 +64,44 @@ class LLMAgent(Agent, BaseLLMInterface):
         prompt = self._generate_action_query_prompt(env)
 
         try:
-            response = self._make_completion_request(
-                prompt,
-                response_format=ActionResponse,
-            )
-            action = response.action
+            extra_kwargs = {}
+            response_format = ActionResponse
+            if return_logprobs:
+                extra_kwargs["logprobs"] = True
+                extra_kwargs["top_logprobs"] = 5
+                extra_kwargs["allowed_openai_params"] = ["logprobs", "top_logprobs"]
+                response_format = None
 
-            logger.info(f"LLM selected action {action}: {response.explanation}")
-            return action, {
+            response, cost, raw_response = self._make_completion_request(
+                prompt,
+                response_format=response_format,
+                **extra_kwargs,
+            )
+
+            if response_format is None:
+                # TODO add retry if validation fails?
+                action_response = ActionResponse.model_validate_json(response)
+            else:
+                action_response = response
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+
+            if return_logprobs:
+                logprobs = raw_response.choices[0].logprobs
+
+            logger.info(
+                f"LLM selected action {action_response.action}: {action_response.confidence} (cost: ${cost:.6f}, total: ${self.total_cost:.6f})"
+            )
+            return action_response.action.value, {
                 "agents_name": self.name,
-                "llm_response": action,
-                "confidence": response.confidence,
-                # "explanation": response.explanation,
+                "llm_response": action_response.action,
+                "confidence": action_response.confidence,
+                "call_cost": cost,
+                "total_cost": self.total_cost,
+                "call_count": self.call_count,
+                "logprobs": logprobs if logprobs else None,
             }
 
         except Exception as e:
@@ -92,3 +123,22 @@ class LLMAgent(Agent, BaseLLMInterface):
             obs_text=obs_text,
         )
         return prompt
+
+    def reset(self) -> None:
+        """Reset the agent's internal state and cost tracking."""
+        super().reset()
+        self.total_cost = 0.0
+        self.call_count = 0
+
+    def get_cost_summary(self) -> dict:
+        """Get a summary of costs incurred by this agent.
+
+        Returns:
+            Dictionary with total_cost, call_count, and avg_cost_per_call
+        """
+        avg_cost = self.total_cost / self.call_count if self.call_count > 0 else 0.0
+        return {
+            "total_cost": self.total_cost,
+            "call_count": self.call_count,
+            "avg_cost_per_call": avg_cost,
+        }
