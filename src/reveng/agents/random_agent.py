@@ -1,7 +1,8 @@
 from typing import Any, Optional, Tuple
 
-from reveng.agents.agent_abc import Agent
 from minigrid.minigrid_env import MiniGridEnv
+
+from reveng.agents.agent_abc import Agent
 
 
 class RandomAgent(Agent):
@@ -37,4 +38,4 @@ class RandomAgent(Agent):
         if not hasattr(env, "action_space"):
             raise ValueError("Environment must have an action_space attribute")
 
-        return env.action_space.sample(), {"agents_name": self.name}
+        return int(env.action_space.sample()), {"agents_name": self.name}
