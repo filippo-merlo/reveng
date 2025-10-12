@@ -129,12 +129,12 @@ class LLMAgent(Agent, BaseLLMInterface):
                 logprobs_serialized = self._serialize_logprobs(logprobs_raw)
 
             logger.info(
-                f"LLM selected action {action_response.action}: {action_response.confidence} (cost: ${cost:.6f}, total: ${self.total_cost:.6f})"
+                f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
             )
             return action_response.action.value, {
                 "agents_name": self.name,
                 "llm_response": action_response.action.value,
-                "confidence": action_response.confidence,
+                # "confidence": action_response.confidence,
                 "call_cost": cost,
                 "total_cost": self.total_cost,
                 "call_count": self.call_count,
