@@ -81,6 +81,7 @@ class BaseLLMInterface:
         response = completion(
             **kwargs,
             response_format=response_format,
+            max_tokens=4999,
         )
 
         # Calculate cost using litellm's completion_cost function
@@ -115,7 +116,14 @@ class BaseLLMInterface:
             # Parse response
             content = response.choices[0].message.content
             if not content:
-                raise ValueError("Empty response from model")
+                choice = response.choices[0]
+                # Log the entire choice object to see the finish_reason
+                logger.error(f"Empty response from model. Full choice object: {choice}")
+                # Raise a more informative error
+                finish_reason = choice.get("finish_reason", "N/A")
+                raise ValueError(
+                    f"Empty response from model. Finish reason: '{finish_reason}'"
+                )
 
             if response_format:
                 try:
