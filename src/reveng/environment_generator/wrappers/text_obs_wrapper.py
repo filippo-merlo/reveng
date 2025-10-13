@@ -1,4 +1,5 @@
 import json
+import numpy as np
 from pathlib import Path
 
 import gymnasium
@@ -133,3 +134,41 @@ class FogOfWarTextWrapper(FogOfWarWrapper, TextObsMixin):
         """Updates the mask and then renders the text grid with fog."""
         super().observation(obs)  # Updates self.seen_mask
         return self._render_text_observation(seen_mask=self.seen_mask)
+
+
+class LoggingFogOfWarTextWrapper(FogOfWarTextWrapper):
+    def __init__(self, env, view_radius=None, config_path=None):
+        super().__init__(env, view_radius=view_radius, config_path=config_path)
+        self.partially_observable_observation_log = []
+        self.fully_observable_observation_log = []
+        self.partially_observable_cell_type_log = []
+        self.fully_observable_cell_type_log = []
+
+    def save_cell_types(self):
+        po_cell_types = []  # list of tuples (x, y, cell_type)
+        fo_cell_types = []  # list of tuples (x, y, cell_type)
+        height = self.unwrapped.height
+        width = self.unwrapped.width
+        for j in range(height):
+            for i in range(width):
+                po_cell_type = self._get_cell_type_at_position(
+                    self.unwrapped, self.seen_mask, i, j
+                )
+                po_cell_types.append((i, j, po_cell_type))
+                fo_cell_type = self._get_cell_type_at_position(
+                    self.unwrapped, None, i, j
+                )
+                fo_cell_types.append((i, j, fo_cell_type))
+        self.partially_observable_cell_type_log.append(repr(po_cell_types))
+        self.fully_observable_cell_type_log.append(repr(fo_cell_types))
+
+    def observation(self, obs):
+        obs = super().observation(obs)
+        self.partially_observable_observation_log.append(obs)
+        fully_observable_mask = np.ones(
+            (self.unwrapped.height, self.unwrapped.width), dtype=bool
+        )
+        fo_obs = self._render_text_observation(seen_mask=fully_observable_mask)
+        self.fully_observable_observation_log.append(fo_obs)
+        self.save_cell_types()
+        return obs
