@@ -12,6 +12,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--size", type=int, default=20)
     parser.add_argument("--num-envs", type=int, default=1)
+    parser.add_argument(
+        "--trajectory-steps",
+        type=int,
+        default=0,
+        help="0: only save the initial observation, >0: save K trajectory steps for each environment",
+    )
     parser.add_argument("--results-dir", type=str, default="grids_for_probing")
     parser.add_argument(
         "--file-name",
@@ -19,11 +25,7 @@ if __name__ == "__main__":
         default="grids_for_probing.csv",
         help="Name of the output CSV file",
     )
-    parser.add_argument(
-        "--distance-prediction",
-        action="store_true",
-        help="Only save each environment once, do not loop over (x,y) coordinates.",
-    )
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     results = []
@@ -34,56 +36,104 @@ if __name__ == "__main__":
     )
 
     for env_idx in range(args.num_envs):
-        one_env_results = []
         env = Simple2DNavigationEnv(size=args.size, complexity=complexities[env_idx])
 
-        wrapped_env = text_wrappers.FullObservabilityTextWrapper(env)
-
-        observation_str, info = wrapped_env.reset()
-        print(observation_str)
-
-        width = wrapped_env.unwrapped.width
-        height = wrapped_env.unwrapped.height
+        partially_observable_env = text_wrappers.LoggingFogOfWarTextWrapper(env)
+        width = partially_observable_env.unwrapped.width
+        height = partially_observable_env.unwrapped.height
         print(f"Width: {width}, Height: {height}")
+        po_observation_str, info = partially_observable_env.reset(seed=args.seed)
+        print(f"Partially observable observation: {po_observation_str}")
 
-        if args.distance_prediction:
-            width = 1
-            height = 1
+        # To get the underlying grid we render the observation with a fully observable seen mask.
+        ones_seen_mask = np.ones((height, width), dtype=bool)
+        fo_observation_str = partially_observable_env._render_text_observation(
+            seen_mask=ones_seen_mask
+        )
+        print(f"Fully observable observation: {fo_observation_str}")
 
-        for j in range(height):
-            for i in range(width):
-                cell_type = wrapped_env._get_cell_type_at_position(
-                    wrapped_env.unwrapped, None, i, j
-                )
-                symbol = wrapped_env.symbols[cell_type]
-
-                one_env_results.append(
-                    {
-                        "env_idx": env_idx,
-                        "observation": observation_str,
-                        "x": i,
-                        "y": j,
-                        "cell_type": cell_type,
-                        "symbol": symbol,
-                        "classes_map": repr(wrapped_env.symbols),
-                    }
-                )
+        po_cell_types = partially_observable_env.partially_observable_cell_type_log[0]
+        fo_cell_types = partially_observable_env.fully_observable_cell_type_log[0]
 
         print("Generating a trajectory from AlphaStar")
         agent = agents.AlphaStarAgent()
 
         trajectory = traj_gen.generate_one_trajectory(
-            env=wrapped_env,
-            observation=observation_str,
+            env=partially_observable_env,
+            observation=po_observation_str,
             info=info,
             agent=agent,
             max_steps_per_trajectory=args.size**2,
         )
-        print(f"Optimal trajectory length: {len(trajectory.steps)}")
         optimal_trajectory_length = len(trajectory.steps)
-        for one_env_result in one_env_results:
-            one_env_result["optimal_trajectory_length"] = optimal_trajectory_length
-            results.append(one_env_result)
+        print(f"Optimal trajectory length: {optimal_trajectory_length}")
+
+        if args.trajectory_steps == 0:
+            print("Only saving the initial observation")
+            results.append(
+                {
+                    "env_idx": env_idx,
+                    "fo_observation": fo_observation_str,
+                    "po_observation": po_observation_str,
+                    "fo_cell_types": fo_cell_types,
+                    "po_cell_types": po_cell_types,
+                    "classes_map": repr(partially_observable_env.symbols),
+                    "optimal_trajectory_length": optimal_trajectory_length,
+                    "trajectory_step": 0,
+                }
+            )
+        elif args.trajectory_steps > 0:
+            stepsize = len(trajectory.steps) // args.trajectory_steps
+            steps_to_save = np.linspace(
+                0, len(trajectory.steps) - 1, args.trajectory_steps, dtype=int
+            )
+            print(
+                f"Saving {args.trajectory_steps} trajectory steps at indices: {steps_to_save}"
+            )
+            assert (
+                trajectory.steps[0].observation
+                == partially_observable_env.partially_observable_observation_log[0]
+            )
+            for step_idx, step in enumerate(trajectory.steps):
+                assert (
+                    step.observation
+                    == partially_observable_env.partially_observable_observation_log[
+                        step_idx
+                    ]
+                )
+                if step_idx not in steps_to_save:
+                    continue
+                fo_observation = (
+                    partially_observable_env.fully_observable_observation_log[step_idx]
+                )
+                po_observation = (
+                    partially_observable_env.partially_observable_observation_log[
+                        step_idx
+                    ]
+                )
+                fo_cell_types = partially_observable_env.fully_observable_cell_type_log[
+                    step_idx
+                ]
+                po_cell_types = (
+                    partially_observable_env.partially_observable_cell_type_log[
+                        step_idx
+                    ]
+                )
+                results.append(
+                    {
+                        "env_idx": env_idx,
+                        "fo_observation": fo_observation,
+                        "po_observation": po_observation,
+                        "fo_cell_types": fo_cell_types,
+                        "po_cell_types": po_cell_types,
+                        "classes_map": repr(partially_observable_env.symbols),
+                        "optimal_trajectory_length": optimal_trajectory_length
+                        - step_idx,
+                        "trajectory_step": step_idx,
+                    }
+                )
+        else:
+            raise ValueError(f"Invalid trajectory steps: {args.trajectory_steps}")
 
     df = pd.DataFrame(results)
 
