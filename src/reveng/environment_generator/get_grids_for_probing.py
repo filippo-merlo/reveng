@@ -19,11 +19,6 @@ if __name__ == "__main__":
         default="grids_for_probing.csv",
         help="Name of the output CSV file",
     )
-    parser.add_argument(
-        "--distance-prediction",
-        action="store_true",
-        help="Only save each environment once, do not loop over (x,y) coordinates.",
-    )
     args = parser.parse_args()
 
     results = []
@@ -34,7 +29,6 @@ if __name__ == "__main__":
     )
 
     for env_idx in range(args.num_envs):
-        one_env_results = []
         env = Simple2DNavigationEnv(size=args.size, complexity=complexities[env_idx])
 
         wrapped_env = text_wrappers.FullObservabilityTextWrapper(env)
@@ -46,28 +40,13 @@ if __name__ == "__main__":
         height = wrapped_env.unwrapped.height
         print(f"Width: {width}, Height: {height}")
 
-        if args.distance_prediction:
-            width = 1
-            height = 1
-
+        env_cell_types = []  # list of tuples (x, y, cell_type)
         for j in range(height):
             for i in range(width):
                 cell_type = wrapped_env._get_cell_type_at_position(
                     wrapped_env.unwrapped, None, i, j
                 )
-                symbol = wrapped_env.symbols[cell_type]
-
-                one_env_results.append(
-                    {
-                        "env_idx": env_idx,
-                        "observation": observation_str,
-                        "x": i,
-                        "y": j,
-                        "cell_type": cell_type,
-                        "symbol": symbol,
-                        "classes_map": repr(wrapped_env.symbols),
-                    }
-                )
+                env_cell_types.append((i, j, cell_type))
 
         print("Generating a trajectory from AlphaStar")
         agent = agents.AlphaStarAgent()
@@ -81,9 +60,16 @@ if __name__ == "__main__":
         )
         print(f"Optimal trajectory length: {len(trajectory.steps)}")
         optimal_trajectory_length = len(trajectory.steps)
-        for one_env_result in one_env_results:
-            one_env_result["optimal_trajectory_length"] = optimal_trajectory_length
-            results.append(one_env_result)
+
+        results.append(
+            {
+                "env_idx": env_idx,
+                "observation": observation_str,
+                "cell_types": repr(env_cell_types),
+                "classes_map": repr(wrapped_env.symbols),
+                "optimal_trajectory_length": optimal_trajectory_length,
+            }
+        )
 
     df = pd.DataFrame(results)
 
