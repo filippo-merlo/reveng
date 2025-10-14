@@ -1,4 +1,5 @@
 import logging
+import traceback
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -78,11 +79,15 @@ class BaseLLMInterface:
         Returns:
             Tuple of (response_object, cost_in_usd)
         """
-        response = completion(
-            **kwargs,
-            response_format=response_format,
-            max_tokens=4999,
-        )
+        try:
+            response = completion(
+                **kwargs,
+                response_format=response_format,
+                max_tokens=10000,
+            )
+        except Exception as e:
+            logger.error(f"Model request failed: {e}\n{traceback.format_exc()}")
+            raise
 
         # Calculate cost using litellm's completion_cost function
         try:
@@ -125,6 +130,10 @@ class BaseLLMInterface:
                     f"Empty response from model. Finish reason: '{finish_reason}'"
                 )
 
+            content, response = inject_thinking_for_qwen(
+                model_name=self.model_name, content=content, response=response
+            )
+
             if response_format:
                 try:
                     parsed_response = response_format.model_validate_json(content)
@@ -136,5 +145,20 @@ class BaseLLMInterface:
 
             return content, cost, response
         except Exception as exc:
-            logger.error(f"Model request failed: {exc}")
+            logger.error(f"Model request failed: {exc}\n{traceback.format_exc()}")
             raise
+
+
+def inject_thinking_for_qwen(
+    model_name: str, content: str, response: dict
+) -> Tuple[str, dict]:
+    """Inject thinking for Qwen models. There is a bug for qwen3 30b a3b in fireworks where the response is not properly formatted."""
+    if "</think>" in content and "qwen3-30b-a3b" in model_name:
+        reasoning_content = content.split("</think>")[0]
+        content = content.split("</think>")[1]
+        response.choices[0].message.content = content.strip()
+        response["choices"][0]["message"]["reasoning_content"] = (
+            reasoning_content.strip()
+        )
+        return content, response
+    return content, response

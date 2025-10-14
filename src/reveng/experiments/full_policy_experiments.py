@@ -8,6 +8,8 @@ import json
 import pickle
 from pathlib import Path
 
+from tqdm import tqdm
+
 from reveng.agents import LLMAgent
 from reveng.policy_inspector.extract_action_prob_utils import get_action_probs
 from reveng.policy_inspector.policy_elicitation import (
@@ -33,9 +35,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-name",
         type=str,
-        # default="gpt-oss-20b",
-        default="qwen3-30b-a3b-instruct-2507",
-        help="Model name to use (will be prefixed with fireworks_ai/accounts/fireworks/models/)",
+        default="together_ai/openai/gpt-oss-20b",
+        help="Model name to use",
     )
 
     args = parser.parse_args()
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     print(f"Dataset loaded: {len(dataset)} environments")
 
     # Create agent
-    model = f"fireworks_ai/accounts/fireworks/models/{args.model_name}"
+    model = args.model_name
     llm_agent = LLMAgent(model_name=model, name="LLM agent")
 
     # Create output directory structure: results/{model_name}/
@@ -57,10 +58,13 @@ if __name__ == "__main__":
     print(f"Saving results to: {output_base}")
 
     # Iterate through environments
-    for grid_id, env in list(dataset.items())[
-        ::10
-    ]:  # TODO: fix hardcoded 1 grid per config
-        print(f"Processing environment: {grid_id}")
+    environments = list(dataset.items())[::10][
+        0:1
+    ]  # TODO: fix hardcoded 1 grid per config
+    pbar = tqdm(environments, desc="Processing environments")
+    for grid_id, env in pbar:
+        env_size = f"{env.unwrapped.width}x{env.unwrapped.height}"
+        pbar.set_postfix({"grid_id": grid_id, "size": env_size})
 
         llm_policy, llm_policy_metadata = elicit_policy(env, llm_agent)
 
@@ -85,8 +89,5 @@ if __name__ == "__main__":
             action_probabilities, env, filename=str(prob_viz_path)
         )
 
-        print(
-            f"Saved: {grid_id}_metadata.json, {grid_id}_policy.png, {grid_id}_probabilities.png"
-        )
-
     print("\nPolicy elicitation complete!")
+    print(f"Cost summary: {llm_agent.get_cost_summary()}")

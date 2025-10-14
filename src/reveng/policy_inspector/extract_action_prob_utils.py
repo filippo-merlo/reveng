@@ -1,9 +1,11 @@
 import json
-import numpy as np
 import pprint
-from typing import List, Dict, Any, Optional
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from typing import Any, Dict, List, Optional
 
+import numpy as np
+from scipy.special import softmax
+
+from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 # Define a constant for the action mapping for clarity and easy modification.
 ACTION_MAP = {"0": "LEFT", "1": "RIGHT", "2": "UP", "3": "DOWN"}
@@ -48,7 +50,6 @@ def calculate_normalized_distribution(
 
     top_logprobs = action_logprob_info["top_logprobs"]
 
-    # --- THIS SECTION HANDLES YOUR REQUEST ---
     # Initialize log probabilities for all possible actions to negative infinity.
     # This ensures that any action token NOT in the top_logprobs list will
     # have a logprob of -inf, which becomes a probability of 0 after np.exp().
@@ -59,23 +60,13 @@ def calculate_normalized_distribution(
         token = item["token"]
         if token in ACTION_MAP:
             log_probs[token] = item["logprob"]
-    # --- END SECTION ---
 
-    # Convert log probabilities to standard probabilities (p = e^log_p).
-    raw_probs = {token: np.exp(log_p) for token, log_p in log_probs.items()}
-
-    # Normalize the distribution so that the probabilities of our actions sum to 1.
-    total_prob = sum(raw_probs.values())
-
-    if total_prob > 0:
-        normalized_distribution = {
-            ACTION_MAP[token]: prob / total_prob for token, prob in raw_probs.items()
-        }
-    else:
-        # If no action tokens were in top_logprobs, return a zero distribution.
-        normalized_distribution = {action: 0.0 for action in ACTION_MAP.values()}
-
-    return normalized_distribution
+    normalized_distribution = softmax(np.array(list(log_probs.values())))
+    mapped_distribution = {
+        ACTION_MAP[token]: value
+        for token, value in zip(log_probs.keys(), normalized_distribution)
+    }
+    return mapped_distribution
 
 
 def get_action_probs(data: List[List[Any]]) -> List[List[Dict[str, float]]]:
