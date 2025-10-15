@@ -2,7 +2,7 @@
   "agent": "A",
   "wall": "#",
   "goal": "G",
-  "empty": " ",
+  "empty": "_",
   "unknown_obj": "?",
   "fog": "*"
 }
