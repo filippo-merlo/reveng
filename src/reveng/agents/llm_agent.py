@@ -1,8 +1,10 @@
 import logging
+import traceback
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from minigrid.minigrid_env import MiniGridEnv
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from reveng.agents.agent_abc import Agent
 from reveng.agents.llm_templates import ActionResponse
@@ -80,6 +82,27 @@ class LLMAgent(Agent, BaseLLMInterface):
     ) -> Tuple[int, dict]:
         """
         Select an action using the LLM based on the current environment state.
+        """
+        try:
+            return self._select_action(env, return_logprobs, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error getting action for position {env.agent_pos} from LLM after retrying: {e}"
+            )
+            return -1, {"agents_name": self.name}
+
+    # We need to retry if the model response is not valid json
+    @retry(
+        stop=stop_after_attempt(3),
+        # 1-10 seconds between attempts, to help avoid rate limiting
+        wait=wait_random_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    def _select_action(
+        self, env: MiniGridEnv, return_logprobs: bool = False, **kwargs: Any
+    ) -> Tuple[int, dict]:
+        """
+        Select an action using the LLM based on the current environment state.
 
         Args:
             env: The environment to interact with
@@ -115,7 +138,6 @@ class LLMAgent(Agent, BaseLLMInterface):
             )
 
             if response_format is None:
-                # TODO add retry if validation fails?
                 action_response = ActionResponse.model_validate_json(response)
             else:
                 action_response = response
@@ -129,12 +151,11 @@ class LLMAgent(Agent, BaseLLMInterface):
                 logprobs_serialized = self._serialize_logprobs(logprobs_raw)
 
             logger.info(
-                f"LLM selected action {action_response.action}: {action_response.confidence} (cost: ${cost:.6f}, total: ${self.total_cost:.6f})"
+                f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
             )
             return action_response.action.value, {
                 "agents_name": self.name,
                 "llm_response": action_response.action.value,
-                "confidence": action_response.confidence,
                 "call_cost": cost,
                 "total_cost": self.total_cost,
                 "call_count": self.call_count,
@@ -142,7 +163,9 @@ class LLMAgent(Agent, BaseLLMInterface):
             }
 
         except Exception as e:
-            logger.error(f"Error getting action from LLM: {e}")
+            logger.error(
+                f"Error getting action from LLM: {e}\n{traceback.format_exc()}"
+            )
             raise
 
     def _get_text_observation(self, env: MiniGridEnv) -> str:
