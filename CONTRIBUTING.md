@@ -40,6 +40,7 @@
 In the project root, create a `.env` file and set it up:
 ```
 FIREWORKS_AI_API_KEY="<insert your api key here>"
+TOGETHERAI_API_KEY="<insert your api key here>"
 ```
 
 DO NOT commit your .env file! It should already be in the `.gitignore`.
