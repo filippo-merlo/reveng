@@ -6,6 +6,7 @@ This module provides experiment runners for full policy elicitation.
 import argparse
 import json
 import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from tqdm import tqdm
@@ -14,9 +15,44 @@ from reveng.agents import LLMAgent
 from reveng.policy_inspector.extract_action_prob_utils import get_action_probs
 from reveng.policy_inspector.policy_elicitation import (
     elicit_policy,
-    visualize_policy,
-    visualize_policy_probabilities,
+    visualize_policy_probabilities_threadsafe,
+    visualize_policy_threadsafe,
 )
+
+
+def _process_single_environment(model_name: str, output_base: Path, grid_id: str, env):
+    """Run policy elicitation and visualizations for a single environment.
+
+    Returns a tuple of (grid_id, cost_summary_dict).
+    """
+    # Create a dedicated agent per environment to avoid shared mutable state across threads
+    llm_agent = LLMAgent(model_name=model_name, name="LLM agent")
+
+    llm_policy, llm_policy_metadata = elicit_policy(env, llm_agent)
+
+    # Save metadata
+    metadata_path = output_base / f"{grid_id}_metadata.json"
+    with open(metadata_path, "w") as f:
+        json.dump(llm_policy_metadata, f, indent=2)
+
+    # Visualize policy
+    policy_viz_path = output_base / f"{grid_id}_policy.png"
+    visualize_policy_threadsafe(
+        llm_policy,
+        env,
+        filename=str(policy_viz_path),
+        title=f"LLM Agent Policy - {grid_id}",
+    )
+
+    # Process and visualize policy probabilities
+    action_probabilities = get_action_probs(llm_policy_metadata)
+    prob_viz_path = output_base / f"{grid_id}_probabilities.png"
+    visualize_policy_probabilities_threadsafe(
+        action_probabilities, env, filename=str(prob_viz_path)
+    )
+
+    return grid_id, llm_agent.get_cost_summary()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run full policy experiments")
@@ -38,6 +74,12 @@ if __name__ == "__main__":
         default="together_ai/openai/gpt-oss-20b",
         help="Model name to use",
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of parallel workers to use (default: 4)",
+    )
 
     args = parser.parse_args()
 
@@ -48,9 +90,8 @@ if __name__ == "__main__":
 
     print(f"Dataset loaded: {len(dataset)} environments")
 
-    # Create agent
+    # Model name for worker agents
     model = args.model_name
-    llm_agent = LLMAgent(model_name=model, name="LLM agent")
 
     # Create output directory structure: results/{model_name}/
     output_base = Path(args.output_dir) / args.model_name
@@ -59,35 +100,34 @@ if __name__ == "__main__":
 
     # Iterate through environments
     environments = list(dataset.items())[::10][
-        0:1
+        0:4
     ]  # TODO: fix hardcoded 1 grid per config
-    pbar = tqdm(environments, desc="Processing environments")
-    for grid_id, env in pbar:
-        env_size = f"{env.unwrapped.width}x{env.unwrapped.height}"
-        pbar.set_postfix({"grid_id": grid_id, "size": env_size})
+    # Parallel processing of environments
+    cost_summaries = []
+    with ThreadPoolExecutor(max_workers=args.num_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_single_environment, model, output_base, grid_id, env
+            ): grid_id
+            for grid_id, env in environments
+        }
 
-        llm_policy, llm_policy_metadata = elicit_policy(env, llm_agent)
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Processing environments"
+        ):
+            grid_id = futures[future]
+            try:
+                _, cost_summary = future.result()
+                cost_summaries.append(cost_summary)
+            except Exception as exc:
+                print(f"Environment {grid_id} failed with error: {exc}")
 
-        # Save metadata
-        metadata_path = output_base / f"{grid_id}_metadata.json"
-        with open(metadata_path, "w") as f:
-            json.dump(llm_policy_metadata, f, indent=2)
-
-        # Visualize policy
-        policy_viz_path = output_base / f"{grid_id}_policy.png"
-        visualize_policy(
-            llm_policy,
-            env,
-            filename=str(policy_viz_path),
-            title=f"LLM Agent Policy - {grid_id}",
-        )
-
-        # Process and visualize policy probabilities
-        action_probabilities = get_action_probs(llm_policy_metadata)
-        prob_viz_path = output_base / f"{grid_id}_probabilities.png"
-        visualize_policy_probabilities(
-            action_probabilities, env, filename=str(prob_viz_path)
-        )
+    # Aggregate and print cost summary across all workers
+    total_cost = sum(cs.get("total_cost", 0.0) for cs in cost_summaries)
+    total_calls = sum(cs.get("call_count", 0) for cs in cost_summaries)
+    avg_cost_per_call = (total_cost / total_calls) if total_calls > 0 else 0.0
 
     print("\nPolicy elicitation complete!")
-    print(f"Cost summary: {llm_agent.get_cost_summary()}")
+    print(
+        f"Cost summary: {{'total_cost': {total_cost:.6f}, 'call_count': {total_calls}, 'avg_cost_per_call': {avg_cost_per_call:.6f}}}"
+    )
