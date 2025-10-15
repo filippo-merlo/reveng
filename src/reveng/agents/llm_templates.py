@@ -15,7 +15,13 @@ class ActionResponse(BaseModel):
     @field_validator("action", mode="before")
     @classmethod
     def validate_action(cls, v):
-        """Convert int to Action enum if needed."""
+        """Convert int or string to Action enum if needed."""
         if isinstance(v, int):
             return Action(v)
+        if isinstance(v, str):
+            # Try to convert numeric string to int first
+            if v.isdigit():
+                return Action(int(v))
+            # Try to match enum name (case-insensitive)
+            return Action[v.upper()]
         return v

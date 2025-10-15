@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from minigrid.minigrid_env import MiniGridEnv
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from reveng.agents.agent_abc import Agent
@@ -24,6 +25,8 @@ class LLMAgent(Agent, BaseLLMInterface):
         model_name: str,
         temperature: float = 0.0,
         name: Optional[str] = None,
+        template_path: Optional[Path] = None,
+        response_format: BaseModel = ActionResponse,
     ) -> None:
         """
         Args:
@@ -31,16 +34,24 @@ class LLMAgent(Agent, BaseLLMInterface):
             temperature: Temperature for the model (keep at 0.0 for consistent action selection).
             name: Optional name for the agent. Defaults to class name.
         """
+        if template_path is None:
+            template_path = (
+                Path(__file__).parent.parent
+                / "templates"
+                / "grid_full_observability.j2"
+            )
+
         Agent.__init__(self, name)
         BaseLLMInterface.__init__(
             self,
             model_name=model_name,
             temperature=temperature,
-            template_path=Path(__file__).parent / "prompt_templates" / "maze.j2",
+            template_path=template_path,
         )
         # Cost tracking
         self.total_cost = 0.0
         self.call_count = 0
+        self.response_format = response_format
 
     def _serialize_logprobs(self, logprobs_obj: Any) -> Optional[list[dict]]:
         """Convert model logprobs object(s) to JSON-serializable dictionaries.
@@ -123,7 +134,7 @@ class LLMAgent(Agent, BaseLLMInterface):
 
         try:
             extra_kwargs = {}
-            response_format = ActionResponse
+            response_format = self.response_format
             logprobs_raw = None
             if return_logprobs:
                 extra_kwargs["logprobs"] = True
@@ -138,7 +149,7 @@ class LLMAgent(Agent, BaseLLMInterface):
             )
 
             if response_format is None:
-                action_response = ActionResponse.model_validate_json(response)
+                action_response = self.response_format.model_validate_json(response)
             else:
                 action_response = response
 
@@ -180,7 +191,7 @@ class LLMAgent(Agent, BaseLLMInterface):
         obs_text = self._get_text_observation(env)
 
         prompt = self.render_template(
-            obs_text=obs_text,
+            grid_state=obs_text,
         )
         return prompt
 
