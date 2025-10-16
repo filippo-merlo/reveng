@@ -2,6 +2,7 @@ import numpy as np
 from gymnasium.core import ObservationWrapper
 
 
+# TODO: convert logic of seen_mask to fog_mask to disambiguate wrappers
 class FogOfWarWrapper(ObservationWrapper):
     """
     An abstract base class for MiniGrid wrappers that adds a cumulative,
