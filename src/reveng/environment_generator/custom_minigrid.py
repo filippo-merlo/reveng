@@ -16,6 +16,15 @@ class Simple2DNavigationEnv(MiniGridEnv):
         UP = 2
         DOWN = 3
 
+    class ExtendedActions(IntEnum):
+        # https://docs.python.org/3/howto/enum.html#restricted-enum-subclassing
+        # Creating a subclass of an Enum with numbers is not possible
+        LEFT = 0
+        RIGHT = 1
+        UP = 2
+        DOWN = 3
+        QUIT = 4
+
     def __init__(
         self,
         size=11,
@@ -24,12 +33,14 @@ class Simple2DNavigationEnv(MiniGridEnv):
         agent_start_pos: tuple[int, int] | None = None,
         goal_pos: tuple[int, int] | None = None,
         max_steps: int | None = None,
+        allow_quit_action: bool = False,
         **kwargs,
     ):
         self.complexity = max(0.0, min(1.0, complexity))  # Clamp between 0 and 1
         self.agent_start_pos_user = agent_start_pos
         self.agent_start_dir_user = agent_start_dir
         self.goal_pos_user = goal_pos
+        self.allow_quit_action = allow_quit_action
 
         if size % 2 == 0:
             size += 1
@@ -48,14 +59,18 @@ class Simple2DNavigationEnv(MiniGridEnv):
             **kwargs,
         )
 
-        self.actions = Simple2DNavigationEnv.Actions
+        if self.allow_quit_action:
+            self.actions = Simple2DNavigationEnv.ExtendedActions
+        else:
+            self.actions = Simple2DNavigationEnv.Actions
+
         self.action_space = spaces.Discrete(len(self.actions))
 
         self._action_to_direction = {
-            self.Actions.LEFT: 2,
-            self.Actions.RIGHT: 0,
-            self.Actions.UP: 3,
-            self.Actions.DOWN: 1,
+            self.actions.LEFT: 2,
+            self.actions.RIGHT: 0,
+            self.actions.UP: 3,
+            self.actions.DOWN: 1,
         }
 
     @staticmethod
@@ -159,6 +174,12 @@ class Simple2DNavigationEnv(MiniGridEnv):
         reward = 0
         terminated = False
         truncated = False
+
+        # Handle QUIT action
+        if self.allow_quit_action and action == self.ExtendedActions.QUIT:
+            terminated = True
+            obs = self.gen_obs()
+            return obs, reward, terminated, truncated, {}
 
         # Set agent's direction based on the action
         if action in self._action_to_direction:
