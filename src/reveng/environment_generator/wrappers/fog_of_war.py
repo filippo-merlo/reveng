@@ -1,5 +1,6 @@
 import numpy as np
 from gymnasium.core import ObservationWrapper
+from minigrid.minigrid_env import MiniGridEnv
 
 
 # TODO: convert logic of seen_mask to fog_mask to disambiguate wrappers
@@ -15,11 +16,12 @@ class FogOfWarWrapper(ObservationWrapper):
 
     def __init__(self, env, view_radius=None):
         super().__init__(env)
+        self.gridenv: MiniGridEnv = self.unwrapped  # type: ignore
 
         if view_radius is None:
             # Default radius is based on the env's triangular view size.
             # For agent_view_size=7, this results in a radius of 3 (a 7x7 view).
-            self.view_radius = (self.unwrapped.agent_view_size - 1) // 2
+            self.view_radius = (self.gridenv.agent_view_size - 1) // 2
         else:
             self.view_radius = view_radius
 
@@ -28,16 +30,14 @@ class FogOfWarWrapper(ObservationWrapper):
     def reset(self, **kwargs):
         """Resets the environment and the seen mask."""
         obs, info = self.env.reset(**kwargs)
-        self.seen_mask = np.zeros(
-            (self.unwrapped.height, self.unwrapped.width), dtype=bool
-        )
+        self.seen_mask = np.zeros((self.gridenv.height, self.gridenv.width), dtype=bool)
         # The observation method is called by the subclass reset
         return obs, info
 
-    def observation(self, obs):
+    def observation(self, observation):
         """Updates the seen mask based on the agent's current position."""
         self._update_seen_mask()
-        return obs
+        return observation
 
     @staticmethod
     def _trace_line(x0, y0, x1, y1):
@@ -68,12 +68,12 @@ class FogOfWarWrapper(ObservationWrapper):
         Updates the seen_mask by casting rays from the agent's position
         to the edge of its view radius, accounting for walls.
         """
-        agent_x, agent_y = self.unwrapped.agent_pos
+        agent_x, agent_y = self.gridenv.agent_pos
 
         min_x = max(0, agent_x - self.view_radius)
-        max_x = min(self.unwrapped.width - 1, agent_x + self.view_radius)
+        max_x = min(self.gridenv.width - 1, agent_x + self.view_radius)
         min_y = max(0, agent_y - self.view_radius)
-        max_y = min(self.unwrapped.height - 1, agent_y + self.view_radius)
+        max_y = min(self.gridenv.height - 1, agent_y + self.view_radius)
 
         perimeter_points = set()
         for x in range(min_x, max_x + 1):
@@ -85,7 +85,8 @@ class FogOfWarWrapper(ObservationWrapper):
 
         for px, py in perimeter_points:
             for x, y in self._trace_line(agent_x, agent_y, px, py):
-                self.seen_mask[y, x] = True
-                cell = self.unwrapped.grid.get(x, y)
+                if self.seen_mask is not None:
+                    self.seen_mask[y, x] = True
+                cell = self.gridenv.grid.get(x, y)
                 if cell and cell.type == "wall":
                     break

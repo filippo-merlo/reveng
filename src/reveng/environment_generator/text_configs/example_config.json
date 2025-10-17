@@ -1,8 +1,8 @@
 {
-  "agent": "A",
-  "wall": "#",
-  "goal": "G",
-  "empty": "_",
-  "unknown_obj": "?",
-  "fog": "*"
+  "agent": {"symbol": "A", "description": "Current agent position"},
+  "wall": {"symbol": "#", "description": "Wall"},
+  "goal": {"symbol": "G", "description": "Goal"},
+  "empty": {"symbol": "_", "description": "Open space (can be visited)"},
+  "unknown_obj": {"symbol": "?", "description": "Unknown object"},
+  "fog": {"symbol": "*", "description": "Hidden Space (reveals a Wall, Goal or Open Space when observed)"}
 }
