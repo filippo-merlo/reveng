@@ -1,11 +1,14 @@
 import pandas as pd
 import numpy as np
 import argparse
+import os
+from pathlib import Path
+
 from custom_minigrid import Simple2DNavigationEnv
 import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
 import reveng.trajectory_generator.trajectory_generator as traj_gen
 import reveng.agents as agents
-import os
+from reveng.llm_interface import BaseLLMInterface
 
 
 if __name__ == "__main__":
@@ -44,13 +47,25 @@ if __name__ == "__main__":
         print(f"Width: {width}, Height: {height}")
         po_observation_str, info = partially_observable_env.reset(seed=args.seed)
         print(f"Partially observable observation: {po_observation_str}")
+        po_template_path = (
+            Path(__file__).parent.parent / "templates" / "grid_partial_observability.j2"
+        )
+        po_interface = BaseLLMInterface(model_name=None, template_path=po_template_path)
+        po_prompt = po_interface.render_template(grid_state=po_observation_str)
+        print(f"Partially observable prompt: {po_prompt}")
 
         # To get the underlying grid we render the observation with a fully observable seen mask.
         ones_seen_mask = np.ones((height, width), dtype=bool)
-        fo_observation_str = partially_observable_env._render_text_observation(
+        fo_observation_str = partially_observable_env._render_grid_with_coordinates(
             seen_mask=ones_seen_mask
         )
         print(f"Fully observable observation: {fo_observation_str}")
+        fo_template_path = (
+            Path(__file__).parent.parent / "templates" / "grid_full_observability.j2"
+        )
+        fo_interface = BaseLLMInterface(model_name=None, template_path=fo_template_path)
+        fo_prompt = fo_interface.render_template(grid_state=fo_observation_str)
+        print(f"Fully observable prompt: {fo_prompt}")
 
         po_cell_types = partially_observable_env.partially_observable_cell_type_log[0]
         fo_cell_types = partially_observable_env.fully_observable_cell_type_log[0]
@@ -74,7 +89,9 @@ if __name__ == "__main__":
                 {
                     "env_idx": env_idx,
                     "fo_observation": fo_observation_str,
+                    "fo_prompt": fo_prompt,
                     "po_observation": po_observation_str,
+                    "po_prompt": po_prompt,
                     "fo_cell_types": fo_cell_types,
                     "po_cell_types": po_cell_types,
                     "classes_map": repr(partially_observable_env.symbols),
@@ -106,11 +123,13 @@ if __name__ == "__main__":
                 fo_observation = (
                     partially_observable_env.fully_observable_observation_log[step_idx]
                 )
+                fo_prompt = fo_interface.render_template(grid_state=fo_observation)
                 po_observation = (
                     partially_observable_env.partially_observable_observation_log[
                         step_idx
                     ]
                 )
+                po_prompt = po_interface.render_template(grid_state=po_observation)
                 fo_cell_types = partially_observable_env.fully_observable_cell_type_log[
                     step_idx
                 ]
@@ -123,7 +142,9 @@ if __name__ == "__main__":
                     {
                         "env_idx": env_idx,
                         "fo_observation": fo_observation,
+                        "fo_prompt": fo_prompt,
                         "po_observation": po_observation,
+                        "po_prompt": po_prompt,
                         "fo_cell_types": fo_cell_types,
                         "po_cell_types": po_cell_types,
                         "classes_map": repr(partially_observable_env.symbols),
