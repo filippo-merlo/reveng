@@ -1,15 +1,15 @@
-import pandas as pd
-import numpy as np
 import argparse
 import os
 from pathlib import Path
 
-from custom_minigrid import Simple2DNavigationEnv
+import numpy as np
+import pandas as pd
+
+import reveng.agents as agents
 import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
 import reveng.trajectory_generator.trajectory_generator as traj_gen
-import reveng.agents as agents
+from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 from reveng.llm_interface import BaseLLMInterface
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -21,7 +21,7 @@ if __name__ == "__main__":
         default=0,
         help="0: only save the initial observation, >0: save K trajectory steps for each environment",
     )
-    parser.add_argument("--results-dir", type=str, default="grids_for_probing")
+    parser.add_argument("--results-dir", type=str, default="outputs/grids_for_probing")
     parser.add_argument(
         "--file-name",
         type=str,
@@ -29,14 +29,23 @@ if __name__ == "__main__":
         help="Name of the output CSV file",
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--complexity",
+        type=int,
+        choices=range(100),
+        help="Complexity percentage (0-100) for all environments. If not set, will be evenly spaced 0 to 100.",
+    )
     args = parser.parse_args()
 
     results = []
-    complexities = np.linspace(0.0, 1.0, args.num_envs)
+    if args.complexity is not None:
+        print(f"Using fixed complexity: {args.complexity}")
+        complexities = np.array([args.complexity / 100] * args.num_envs)
+    else:
+        print(f"Interpolating complexities from 0 to 1 over {args.num_envs} steps.")
+        complexities = np.linspace(0.0, 1.0, args.num_envs)
 
-    print(
-        f"Generating {args.num_envs} environments of size {args.size} with complexities: {complexities}"
-    )
+    print(f"Generating {args.num_envs} environments of size {args.size}")
 
     for env_idx in range(args.num_envs):
         env = Simple2DNavigationEnv(size=args.size, complexity=complexities[env_idx])
@@ -56,9 +65,7 @@ if __name__ == "__main__":
 
         # To get the underlying grid we render the observation with a fully observable seen mask.
         ones_seen_mask = np.ones((height, width), dtype=bool)
-        fo_observation_str = partially_observable_env._render_grid_with_coordinates(
-            seen_mask=ones_seen_mask
-        )
+        fo_observation_str = partially_observable_env._render(seen_mask=ones_seen_mask)
         print(f"Fully observable observation: {fo_observation_str}")
         fo_template_path = (
             Path(__file__).parent.parent / "templates" / "grid_full_observability.j2"
@@ -94,7 +101,7 @@ if __name__ == "__main__":
                     "po_prompt": po_prompt,
                     "fo_cell_types": fo_cell_types,
                     "po_cell_types": po_cell_types,
-                    "classes_map": repr(partially_observable_env.symbols),
+                    "classes_map": repr(partially_observable_env.grid_cells),
                     "optimal_trajectory_length": optimal_trajectory_length,
                     "trajectory_step": 0,
                 }
@@ -147,7 +154,7 @@ if __name__ == "__main__":
                         "po_prompt": po_prompt,
                         "fo_cell_types": fo_cell_types,
                         "po_cell_types": po_cell_types,
-                        "classes_map": repr(partially_observable_env.symbols),
+                        "classes_map": repr(partially_observable_env.grid_cells),
                         "optimal_trajectory_length": optimal_trajectory_length
                         - step_idx,
                         "trajectory_step": step_idx,
