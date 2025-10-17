@@ -65,9 +65,7 @@ if __name__ == "__main__":
 
         # To get the underlying grid we render the observation with a fully observable seen mask.
         ones_seen_mask = np.ones((height, width), dtype=bool)
-        fo_observation_str = partially_observable_env._render_grid_with_coordinates(
-            seen_mask=ones_seen_mask
-        )
+        fo_observation_str = partially_observable_env._render(seen_mask=ones_seen_mask)
         print(f"Fully observable observation: {fo_observation_str}")
         fo_template_path = (
             Path(__file__).parent.parent / "templates" / "grid_full_observability.j2"
