@@ -150,6 +150,15 @@ class TextWrapper(gym.ObservationWrapper):
 
 
 class FullObservabilityTextWrapper(TextWrapper):
+    """
+    Observation wrapper that returns a fully observable grid formatted to align
+    with grid_full_observability.j2:
+      - Includes a header row with column indices
+      - Each row begins with the row index
+      - Cells are space-separated symbols
+      - No mission or legend text is included
+    """
+
     def __init__(self, env, config_path=None):
         super().__init__(env)
         self.observation_space = Text(max_length=4096, charset="utf-8")
