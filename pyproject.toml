@@ -25,6 +25,9 @@ dependencies = [
     "pip>=25.2",
     "tqdm>=4.67.1",
     "scipy>=1.16.2",
+    "ipykernel>=7.0.1",
+    "jupyter>=1.1.1",
+    "seaborn>=0.13.2",
 ]
 
 [tool.setuptools]
