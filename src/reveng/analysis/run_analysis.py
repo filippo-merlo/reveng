@@ -1,5 +1,6 @@
 """Script to analyze LLM policies vs optimal A* policies."""
 
+import argparse
 import heapq
 import json
 import pickle
@@ -9,8 +10,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-
-# Add src to path
 
 
 def parse_filename(filepath):
@@ -154,22 +153,21 @@ def compare_policies(llm_policy, optimal_actions):
     return total_cells, errors, error_rate, multi_optimal_cells
 
 
-def main():
+def main(dataset_path, metadata_dir, output_dir):
     print("=" * 80)
     print("LLM POLICY vs OPTIMAL A* POLICY ANALYSIS")
     print("=" * 80)
 
     # Load the baseline grids dataset
     print("\n1. Loading datasets...")
-    dataset_path = (
-        "/Users/niall/code/reveng/src/reveng/experiments/datasets/baseline_grids.pkl"
-    )
+    print(f"   Dataset: {dataset_path}")
     with open(dataset_path, "rb") as f:
         grids_dataset = pickle.load(f)
     print(f"   Loaded {len(grids_dataset)} environments from dataset")
 
     # Load all metadata JSON files
-    metadata_dir = Path("/Users/niall/Downloads/together_ai_openai_gpt-oss-20b")
+    metadata_dir = Path(metadata_dir)
+    print(f"   Metadata directory: {metadata_dir}")
     metadata_files = list(metadata_dir.glob("*_metadata.json"))
     print(f"   Found {len(metadata_files)} metadata files")
 
@@ -237,9 +235,9 @@ def main():
 
     # Save results
     print("\n4. Saving results...")
-    output_path = (
-        "/Users/niall/code/reveng/src/reveng/analysis/policy_comparison_results.csv"
-    )
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "policy_comparison_results.csv"
     df.to_csv(output_path, index=False)
     print(f"   Results saved to: {output_path}")
 
@@ -395,14 +393,9 @@ def main():
     axes[1].set_ylabel("Complexity", fontsize=12)
 
     plt.tight_layout()
-    plt.savefig(
-        "/Users/niall/code/reveng/src/reveng/analysis/heatmaps.png",
-        dpi=150,
-        bbox_inches="tight",
-    )
-    print(
-        "   Saved heatmaps to: /Users/niall/code/reveng/src/reveng/analysis/heatmaps.png"
-    )
+    heatmap_path = output_dir / "heatmaps.png"
+    plt.savefig(heatmap_path, dpi=150, bbox_inches="tight")
+    print(f"   Saved heatmaps to: {heatmap_path}")
 
     # Line plots
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -448,14 +441,9 @@ def main():
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(
-        "/Users/niall/code/reveng/src/reveng/analysis/line_plots.png",
-        dpi=150,
-        bbox_inches="tight",
-    )
-    print(
-        "   Saved line plots to: /Users/niall/code/reveng/src/reveng/analysis/line_plots.png"
-    )
+    lineplot_path = output_dir / "line_plots.png"
+    plt.savefig(lineplot_path, dpi=150, bbox_inches="tight")
+    print(f"   Saved line plots to: {lineplot_path}")
 
     # Box plots
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -478,14 +466,9 @@ def main():
     axes[1].tick_params(axis="x", rotation=45)
 
     plt.tight_layout()
-    plt.savefig(
-        "/Users/niall/code/reveng/src/reveng/analysis/box_plots.png",
-        dpi=150,
-        bbox_inches="tight",
-    )
-    print(
-        "   Saved box plots to: /Users/niall/code/reveng/src/reveng/analysis/box_plots.png"
-    )
+    boxplot_path = output_dir / "box_plots.png"
+    plt.savefig(boxplot_path, dpi=150, bbox_inches="tight")
+    print(f"   Saved box plots to: {boxplot_path}")
 
     # Scatter plot: traversable cells vs errors
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -529,14 +512,9 @@ def main():
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(
-        "/Users/niall/code/reveng/src/reveng/analysis/scatter_plots.png",
-        dpi=150,
-        bbox_inches="tight",
-    )
-    print(
-        "   Saved scatter plots to: /Users/niall/code/reveng/src/reveng/analysis/scatter_plots.png"
-    )
+    scatterplot_path = output_dir / "scatter_plots.png"
+    plt.savefig(scatterplot_path, dpi=150, bbox_inches="tight")
+    print(f"   Saved scatter plots to: {scatterplot_path}")
 
     print("\n" + "=" * 80)
     print("ANALYSIS COMPLETE!")
@@ -554,4 +532,36 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Analyze LLM policies vs optimal A* policies",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="src/reveng/experiments/datasets/baseline_grids.pkl",
+        help="Path to the baseline grids pickle file",
+    )
+
+    parser.add_argument(
+        "--metadata-dir",
+        type=str,
+        default="/Users/niall/Downloads/together_ai_openai_gpt-oss-20b",
+        help="Directory containing LLM policy metadata JSON files",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="src/reveng/analysis",
+        help="Directory to save analysis results and visualizations",
+    )
+
+    args = parser.parse_args()
+
+    main(
+        dataset_path=args.dataset,
+        metadata_dir=args.metadata_dir,
+        output_dir=args.output_dir,
+    )
