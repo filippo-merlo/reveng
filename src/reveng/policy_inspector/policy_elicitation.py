@@ -8,9 +8,12 @@ from matplotlib.patches import FancyArrowPatch
 from minigrid.minigrid_env import MiniGridEnv
 from tqdm import tqdm
 
+from reveng.datatypes import Step, Trajectory
+from reveng.environment_generator.wrappers.text_obs_wrapper import FogOfWarTextWrapper
+
 
 def elicit_policy(
-    env: MiniGridEnv, agent: Any, top_logprobs: int = 5
+    env: MiniGridEnv, agent: Any, top_logprobs: int = 20
 ) -> Tuple[List[List[int]], List[List[dict]]]:
     """
     Elicit the policy of an agent by querying its action preference at each valid position.
@@ -18,7 +21,7 @@ def elicit_policy(
     Args:
         env: The MiniGrid environment in which the agent will operate.
         agent: The agent whose policy is to be elicited. Must have a `select_action` method.
-        top_logprobs: Number of top logprobs to return for LLMAgent (default: 5).
+        top_logprobs: Number of top logprobs to return for LLMAgent (default: 20).
 
     Returns:
         A 2D list representing the policy, where policy[j][i] is the preferred action
@@ -59,6 +62,78 @@ def elicit_policy(
     env.agent_pos = original_pos
 
     return policy, policy_metadata
+
+
+def generate_one_trajectory(
+    env: MiniGridEnv,
+    grid_id: str,
+    agent: Any,
+    max_steps_per_trajectory: int,
+    top_logprobs: int = 20,
+) -> Trajectory:
+    """Generate a single trajectory from an agent in an environment."""
+    trajectory = Trajectory(steps=[], final_reward=None, traj_metadata={})
+    text_env = FogOfWarTextWrapper(env)
+
+    obs, info = text_env.reset()
+
+    for i in tqdm(
+        range(max_steps_per_trajectory),
+        desc=f"Generating single trajectory for grid id {grid_id}",
+    ):
+        if agent.__class__.__name__ == "PartiallyObservableWithNoteLLMAgent":
+            action, note, metadata = agent.select_action(
+                text_env, top_logprobs=top_logprobs, return_logprobs=True
+            )
+        else:
+            action, metadata = agent.select_action(
+                text_env, top_logprobs=top_logprobs, return_logprobs=True
+            )
+            note = None
+        next_obs, reward, terminated, truncated, info = text_env.step(action)
+        trajectory.steps.append(
+            Step(
+                observation=obs,
+                action=action,
+                reward=reward,
+                note=note,
+                metadata=metadata,
+            )
+        )
+
+        obs = next_obs
+
+        if terminated or truncated or i == max_steps_per_trajectory - 1:
+            break
+
+    trajectory.final_reward = trajectory.steps[-1].reward
+    trajectory.traj_metadata = {
+        "grid_id": grid_id,
+        "agent_name": agent.name,
+        "model_name": agent.model_name,
+        "top_logprobs": top_logprobs,
+        "max_steps_per_trajectory": max_steps_per_trajectory,
+    }
+    return trajectory
+
+
+def collect_trajectories(
+    env: MiniGridEnv,
+    grid_id: str,
+    agent: Any,
+    num_trajectories: int,
+    max_steps_per_trajectory: int,
+    top_logprobs: int = 20,
+) -> List[Trajectory]:
+    """Collect trajectories from an agent in an environment."""
+    trajectories = []
+    for _ in range(num_trajectories):
+        agent.reset()
+        trajectory = generate_one_trajectory(
+            env, grid_id, agent, max_steps_per_trajectory, top_logprobs
+        )
+        trajectories.append(trajectory)
+    return trajectories
 
 
 def _create_figure_ax_pyplot(width: int, height: int) -> tuple[any, any]:

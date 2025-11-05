@@ -3,13 +3,16 @@ import traceback
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+import numpy as np
 from minigrid.minigrid_env import MiniGridEnv
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from reveng.agents.agent_abc import Agent
-from reveng.agents.llm_templates import ActionResponse
+from reveng.agents.llm_templates import ActionResponse, ActionWithNoteResponse
+from reveng.datatypes import Action
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
+    FogOfWarTextWrapper,
     FullObservabilityTextWrapper,
 )
 from reveng.llm_interface import BaseLLMInterface
@@ -92,7 +95,7 @@ class LLMAgent(Agent, BaseLLMInterface):
         self,
         env: MiniGridEnv,
         return_logprobs: bool = False,
-        top_logprobs: int = 5,
+        top_logprobs: int = 20,
         **kwargs: Any,
     ) -> Tuple[int, dict]:
         """
@@ -117,7 +120,7 @@ class LLMAgent(Agent, BaseLLMInterface):
         self,
         env: MiniGridEnv,
         return_logprobs: bool = False,
-        top_logprobs: int = 5,
+        top_logprobs: int = 20,
         **kwargs: Any,
     ) -> Tuple[int, dict]:
         """
@@ -175,6 +178,8 @@ class LLMAgent(Agent, BaseLLMInterface):
             if return_logprobs:
                 logprobs_raw = raw_response.choices[0].logprobs.content
                 logprobs_serialized = self._serialize_logprobs(logprobs_raw)
+            else:
+                logprobs_serialized = None
 
             logger.info(
                 f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
@@ -228,3 +233,337 @@ class LLMAgent(Agent, BaseLLMInterface):
             "call_count": self.call_count,
             "avg_cost_per_call": avg_cost,
         }
+
+
+class PartiallyObservableLLMAgent(LLMAgent):
+    """An agent that uses a Language Model to select actions in a MiniGrid environment with partial observability."""
+
+    def __init__(
+        self,
+        model_name: str,
+        temperature: float = 0.0,
+        name: Optional[str] = None,
+        template_path: Optional[Path] = None,
+        response_format: BaseModel = ActionResponse,
+    ) -> None:
+        if template_path is None:
+            template_path = (
+                Path(__file__).parent.parent
+                / "templates"
+                / "grid_partial_observability.j2"
+            )
+
+        super().__init__(model_name, temperature, name, template_path, response_format)
+
+        self.history = []
+
+    def _generate_action_query_prompt(self, env: FogOfWarTextWrapper) -> str:
+        """Generate a prompt for the LLM to select an action."""
+        # Get text observation using existing wrapper
+        obs_text = self._get_text_observation(env)
+
+        prompt = self.render_template(
+            grid_state=obs_text,
+            history=self.history,
+        )
+        return prompt
+
+    def _get_text_observation(self, env: FogOfWarTextWrapper) -> str:
+        """Get text observation of the environment using existing wrapper."""
+        return env.observation(None)
+
+    def add_to_history(self, action: Action, position: Tuple[int, int]) -> None:
+        """Add an action and position to the history."""
+        if isinstance(position[0], np.int64):
+            new_position = (int(position[0].item()), int(position[1].item()))
+        else:
+            new_position = (position[0], position[1])
+        self.history.append((new_position, action.to_str()))
+
+    def select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, dict]:
+        """
+        Select an action using the LLM based on the current environment state.
+        """
+        try:
+            return self._select_action(env, return_logprobs, top_logprobs, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error getting action for position {env.agent_pos} from LLM after retrying: {e}"
+            )
+            return -1, {"agents_name": self.name}
+
+    # We need to retry if the model response is not valid json
+    @retry(
+        stop=stop_after_attempt(3),
+        # 1-10 seconds between attempts, to help avoid rate limiting
+        wait=wait_random_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    def _select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, dict]:
+        """
+        Select an action using the LLM based on the current environment state.
+
+        Args:
+            env: The environment to interact with
+            return_logprobs: Whether to return logprobs
+            top_logprobs: Number of top logprobs to return (default: 5)
+            **kwargs: Additional arguments (ignored by this agent)
+
+        Returns:
+            The selected action and a dictionary with related metadata.
+        """
+        base_env = getattr(env, "unwrapped", env)
+        agent_pos = (
+            tuple(base_env.agent_pos) if hasattr(base_env, "agent_pos") else "unknown"
+        )
+
+        logger.info(
+            f"Getting action from LLM model {self.model_name} for position {agent_pos}"
+        )
+        prompt = self._generate_action_query_prompt(env)
+
+        try:
+            extra_kwargs = {}
+            response_format = self.response_format
+            logprobs_raw = None
+            if return_logprobs:
+                extra_kwargs["logprobs"] = True
+                extra_kwargs["top_logprobs"] = top_logprobs
+                extra_kwargs["reasoning_effort"] = "low"
+                extra_kwargs["allowed_openai_params"] = [
+                    "logprobs",
+                    "top_logprobs",
+                    "reasoning_effort",
+                ]
+                response_format = None
+
+            response, cost, raw_response = self._make_completion_request(
+                prompt,
+                response_format=response_format,
+                **extra_kwargs,
+            )
+
+            if response_format is None:
+                action_response = self.response_format.model_validate_json(response)
+            else:
+                action_response = response
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+
+            if return_logprobs:
+                logprobs_raw = raw_response.choices[0].logprobs.content
+                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
+            else:
+                logprobs_serialized = None
+
+            logger.info(
+                f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
+            )
+            self.add_to_history(action_response.action, agent_pos)
+            return (
+                action_response.action.value,
+                {
+                    "agents_name": self.name,
+                    "llm_response": action_response.action.value,
+                    "call_cost": cost,
+                    "total_cost": self.total_cost,
+                    "call_count": self.call_count,
+                    "history": self.history.copy(),
+                    "logprobs": logprobs_serialized,
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Error getting action from LLM: {e}\n{traceback.format_exc()}"
+            )
+            raise
+
+    def reset(self) -> None:
+        """Reset the agent's internal state and cost tracking."""
+        super().reset()
+        self.total_cost = 0.0
+        self.call_count = 0
+        self.history = []
+
+
+class PartiallyObservableWithNoteLLMAgent(LLMAgent):
+    """An agent that uses a Language Model to select actions in a MiniGrid environment with partial observability."""
+
+    def __init__(
+        self,
+        model_name: str,
+        temperature: float = 0.0,
+        name: Optional[str] = None,
+        template_path: Optional[Path] = None,
+        response_format: BaseModel = ActionWithNoteResponse,
+    ) -> None:
+        if template_path is None:
+            template_path = (
+                Path(__file__).parent.parent
+                / "templates"
+                / "grid_partial_observability_with_note.j2"
+            )
+
+        super().__init__(model_name, temperature, name, template_path, response_format)
+
+        self.current_note = ""
+
+    def update_note(self, note: str) -> None:
+        """Update the current note."""
+        if note == "KEEP":
+            return
+        if note == "N/A":
+            self.current_note = ""
+            return
+        self.current_note = note
+
+    def _generate_action_query_prompt(self, env: FogOfWarTextWrapper) -> str:
+        """Generate a prompt for the LLM to select an action."""
+        # Get text observation using existing wrapper
+        obs_text = self._get_text_observation(env)
+
+        prompt = self.render_template(
+            grid_state=obs_text,
+            note=self.current_note,
+        )
+        return prompt
+
+    def _get_text_observation(self, env: FogOfWarTextWrapper) -> str:
+        """Get text observation of the environment using existing wrapper."""
+        return env.observation(None)
+
+    def select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, str, dict]:
+        """
+        Select an action using the LLM based on the current environment state.
+        """
+        try:
+            return self._select_action(env, return_logprobs, top_logprobs, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error getting action for position {env.agent_pos} from LLM after retrying: {e}"
+            )
+            return -1, "", {"agents_name": self.name}
+
+    # We need to retry if the model response is not valid json
+    @retry(
+        stop=stop_after_attempt(3),
+        # 1-10 seconds between attempts, to help avoid rate limiting
+        wait=wait_random_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    def _select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, str, dict]:
+        """
+        Select an action using the LLM based on the current environment state.
+
+        Args:
+            env: The environment to interact with
+            return_logprobs: Whether to return logprobs
+            top_logprobs: Number of top logprobs to return (default: 5)
+            **kwargs: Additional arguments (ignored by this agent)
+
+        Returns:
+            The selected action and a dictionary with related metadata.
+        """
+        base_env = getattr(env, "unwrapped", env)
+        agent_pos = (
+            tuple(base_env.agent_pos) if hasattr(base_env, "agent_pos") else "unknown"
+        )
+
+        logger.info(
+            f"Getting action from LLM model {self.model_name} for position {agent_pos}"
+        )
+        prompt = self._generate_action_query_prompt(env)
+
+        try:
+            extra_kwargs = {}
+            response_format = self.response_format
+            logprobs_raw = None
+            if return_logprobs:
+                extra_kwargs["logprobs"] = True
+                extra_kwargs["top_logprobs"] = top_logprobs
+                extra_kwargs["reasoning_effort"] = "low"
+                extra_kwargs["allowed_openai_params"] = [
+                    "logprobs",
+                    "top_logprobs",
+                    "reasoning_effort",
+                ]
+                response_format = None
+
+            response, cost, raw_response = self._make_completion_request(
+                prompt,
+                response_format=response_format,
+                **extra_kwargs,
+            )
+
+            if response_format is None:
+                action_response = self.response_format.model_validate_json(response)
+            else:
+                action_response = response
+
+            # Track costs
+            self.total_cost += cost
+            self.call_count += 1
+
+            if return_logprobs:
+                logprobs_raw = raw_response.choices[0].logprobs.content
+                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
+            else:
+                logprobs_serialized = None
+
+            logger.info(
+                f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
+            )
+            self.update_note(action_response.note)
+            return (
+                action_response.action.value,
+                action_response.note,
+                {
+                    "agents_name": self.name,
+                    "llm_response": action_response.action.value,
+                    "note": action_response.note,
+                    "call_cost": cost,
+                    "total_cost": self.total_cost,
+                    "call_count": self.call_count,
+                    "logprobs": logprobs_serialized,
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Error getting action from LLM: {e}\n{traceback.format_exc()}"
+            )
+            raise
+
+    def reset(self) -> None:
+        """Reset the agent's internal state and cost tracking."""
+        super().reset()
+        self.total_cost = 0.0
+        self.call_count = 0
+        self.current_note = ""

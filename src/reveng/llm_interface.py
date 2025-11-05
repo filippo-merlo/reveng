@@ -83,7 +83,7 @@ class BaseLLMInterface:
             response = completion(
                 **kwargs,
                 response_format=response_format,
-                max_tokens=10000,
+                max_tokens=10000 if "cohere" not in self.model_name else 8192,
             )
         except Exception as e:
             logger.error(f"Model request failed: {e}\n{traceback.format_exc()}")

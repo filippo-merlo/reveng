@@ -9,17 +9,39 @@ from typing import Dict
 @dataclass
 class Step:
     observation: str
-    action: str
+    action: t.Optional[int]
     reward: t.Optional[float]
+    note: t.Optional[str]
     metadata: Dict
+
+    def __dict__(self) -> dict:
+        return {
+            "observation": self.observation,
+            "action": self.action,
+            "reward": self.reward,
+            "note": self.note,
+            "metadata": self.metadata,
+        }
+
+    def __json__(self) -> dict:
+        return self.__dict__()
 
 
 @dataclass
 class Trajectory:
     steps: list[Step]
-    action_space: t.List[str]
     final_reward: t.Optional[float]
     traj_metadata: t.Optional[Dict]
+
+    def __dict__(self) -> dict:
+        return {
+            "steps": [step.__dict__() for step in self.steps],
+            "final_reward": self.final_reward,
+            "traj_metadata": self.traj_metadata,
+        }
+
+    def __json__(self) -> dict:
+        return self.__dict__()
 
 
 class Action(Enum):
@@ -40,6 +62,10 @@ class Action(Enum):
     def __json__(self) -> int:
         """Support for JSON serialization."""
         return self.value
+
+    def to_str(self) -> str:
+        """Convert Action to string."""
+        return {"0": "LEFT", "1": "RIGHT", "2": "UP", "3": "DOWN"}[str(self.value)]
 
 
 def load_trajectory_from_file(file_path: str | Path) -> Trajectory:
@@ -93,6 +119,15 @@ class PreferenceAnalysis:
     timestamp: str
 
 
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles objects with __json__ methods."""
+
+    def default(self, obj):
+        if hasattr(obj, "__json__"):
+            return obj.__json__()
+        return super().default(obj)
+
+
 def trajectory_to_json(result: Dict[str, object]) -> str:
     """Serialise a trajectory scoring result."""
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, cls=CustomJSONEncoder)

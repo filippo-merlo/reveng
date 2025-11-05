@@ -1,3 +1,5 @@
 prob_policy_results/**
 prob_policy_results_threads/**
 prob_policy_results_iso_transforms/**
+partial_obs_note_results_threads/**
+partial_obs_results_threads/**

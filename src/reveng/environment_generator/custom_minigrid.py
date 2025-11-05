@@ -176,7 +176,11 @@ class Simple2DNavigationEnv(MiniGridEnv):
         truncated = False
 
         # Handle QUIT action
-        if self.allow_quit_action and action == self.ExtendedActions.QUIT:
+        if (
+            hasattr(self, "allow_quit_action")
+            and self.allow_quit_action
+            and action == self.ExtendedActions.QUIT
+        ):
             terminated = True
             obs = self.gen_obs()
             return obs, reward, terminated, truncated, {}

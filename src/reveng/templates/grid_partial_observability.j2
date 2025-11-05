@@ -7,7 +7,6 @@ Legend:
 #: Wall
 *: Hidden Space (reveals a Wall, Goal or Open Space when observed)
 _: Open Space (can be visited)
-P: Path (visited in previous steps)
 G: Goal
 A: Current agent position
 ----------------
@@ -22,7 +21,9 @@ You will receive the current state of the grid as a NxM matrix of symbols separa
 2 # A _ * *
 3 # # # * *
 
-The goal is in position (1,3), while the agent's position A is (2,1).
+For this example, the goal is in position (1,3), while the agent's position A is (2,1).
+
+You will also receive a history of your previous moves, which is a list of two values of the form (position): (action).
 
 The agent's possible actions at each step are:
 
@@ -43,6 +44,11 @@ Your final answer should be a valid JSON object provided in the following form:
 DO NOT INCLUDE ANY `json` or `jsonb` in your response NOR TICK MARKS LIKE THIS: ```json ```. Start with { and end with } exactly.
 
 # Inputs
+
+History of previous moves:
+{% for position, action in history -%}
+({{ position[0] }}, {{ position[1] }}): {{ action }}
+{% endfor %}
 
 Current grid state:
 
