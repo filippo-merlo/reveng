@@ -8,16 +8,29 @@ import json
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import List, Tuple
 
 from tqdm import tqdm
 
 from reveng.agents import LLMAgent
+from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 from reveng.policy_inspector.extract_action_prob_utils import get_action_probs
 from reveng.policy_inspector.policy_elicitation import (
     elicit_policy,
     visualize_policy_probabilities_threadsafe,
     visualize_policy_threadsafe,
 )
+
+
+def remove_already_processed_environments(
+    environments: List[Tuple[str, Simple2DNavigationEnv]], output_base: Path
+) -> List[Tuple[str, Simple2DNavigationEnv]]:
+    """Remove environments that have already been processed."""
+    return [
+        env
+        for env in environments
+        if not (output_base / f"{env[0]}_metadata.json").exists()
+    ]
 
 
 def _process_single_environment(
@@ -70,7 +83,7 @@ if __name__ == "__main__":
         "--output-dir",
         type=str,
         default="prob_policy_results_threads",
-        help="Base output directory (default: prob_policy_results)",
+        help="Base output directory (default: prob_policy_results_threads)",
     )
     parser.add_argument(
         "--model-name",
@@ -111,8 +124,9 @@ if __name__ == "__main__":
     print(f"Saving results to: {output_base}")
 
     # Iterate through environments
-    # environments = list(dataset.items())[::10]  # TODO: fix hardcoded 1 grid per config
     environments = list(dataset.items())  # All environments
+    environments = remove_already_processed_environments(environments, output_base)
+    print(f"Remaining environments to process: {len(environments)}")
     # Parallel processing of environments
     cost_summaries = []
     with ThreadPoolExecutor(max_workers=args.num_workers) as executor:

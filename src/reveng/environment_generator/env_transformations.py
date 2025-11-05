@@ -420,7 +420,7 @@ class IsoDifficultyTransformationFactory:
             RotateEnv(),
             ReflectEnv(),
             TransposeEnv(),
-            # StartGoalSwap(),
+            StartGoalSwap(),
             # RemoveDeadEnd(),
             # GoalDisplacement(),
             # DynamicObstacle(),
