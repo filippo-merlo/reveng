@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from reveng.llm_interface import BaseLLMInterface
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--size", type=int, default=20)
+    parser.add_argument("--size", type=int, default=7)
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument(
         "--trajectory-steps",
@@ -35,7 +36,29 @@ if __name__ == "__main__":
         choices=range(100),
         help="Complexity percentage (0-100) for all environments. If not set, will be evenly spaced 0 to 100.",
     )
+    parser.add_argument(
+        "--decoder-training-only",
+        action="store_true",
+        help="Only save columns needed for decoder training (full observability only, no partial observability)",
+    )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        choices=["astar", "llm"],
+        default="astar",
+        help="Type of agent to use for generating trajectories: 'astar' (optimal paths) or 'llm' (LLM-generated paths)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default=None,
+        help="LLM model name/path (required if --agent-type=llm). Example: 'gpt-oss-20b' or 'meta-llama/Llama-2-7b-hf'",
+    )
     args = parser.parse_args()
+    
+    # Validate LLM model is provided if using LLM agent
+    if args.agent_type == "llm" and args.llm_model is None:
+        parser.error("--llm-model is required when --agent-type=llm")
 
     results = []
     if args.complexity is not None:
@@ -55,6 +78,11 @@ if __name__ == "__main__":
         height = partially_observable_env.unwrapped.height
         print(f"Width: {width}, Height: {height}")
         po_observation_str, info = partially_observable_env.reset(seed=args.seed)
+        
+        # Extract start and goal positions from the base environment
+        start_pos = tuple(env.agent_pos)
+        goal_pos = tuple(env.goal_pos)
+        
         print(f"Partially observable observation: {po_observation_str}")
         po_template_path = (
             Path(__file__).parent.parent / "templates" / "grid_partial_observability.j2"
@@ -77,35 +105,76 @@ if __name__ == "__main__":
         po_cell_types = partially_observable_env.partially_observable_cell_type_log[0]
         fo_cell_types = partially_observable_env.fully_observable_cell_type_log[0]
 
-        print("Generating a trajectory from AlphaStar")
-        agent = agents.AlphaStarAgent()
+        # Choose agent based on --agent-type argument
+        if args.agent_type == "astar":
+            print("Generating a trajectory from AlphaStar (optimal paths)")
+            agent = agents.AlphaStarAgent()
+            # Use partial observability environment for A* (original behavior)
+            trajectory_env = partially_observable_env
+            trajectory_observation = po_observation_str
+        elif args.agent_type == "llm":
+            print(f"Generating a trajectory from LLM: {args.llm_model}")
+            from reveng.agents.llm_agent import LLMAgent
+            agent = LLMAgent(
+                model_name=args.llm_model,
+                name="LLM Agent"
+            )
+            # Use full observability for LLM (so LLM sees complete grid)
+            trajectory_env = partially_observable_env  # Still use wrapped env for consistency
+            trajectory_observation = fo_observation_str  # But use full observability observation
+        else:
+            raise ValueError(f"Unknown agent type: {args.agent_type}")
 
         trajectory = traj_gen.generate_one_trajectory(
-            env=partially_observable_env,
-            observation=po_observation_str,
+            env=trajectory_env,
+            observation=trajectory_observation,
             info=info,
             agent=agent,
             max_steps_per_trajectory=args.size**2,
         )
-        optimal_trajectory_length = len(trajectory.steps)
-        print(f"Optimal trajectory length: {optimal_trajectory_length}")
+        trajectory_length = len(trajectory.steps)
+        if args.agent_type == "astar":
+            print(f"Optimal trajectory length: {trajectory_length}")
+        else:
+            print(f"LLM trajectory length: {trajectory_length}")
+        
+        # Extract action sequence from trajectory steps
+        action_sequence = [int(step.action) for step in trajectory.steps]
+        action_sequence_json = json.dumps(action_sequence)
 
         if args.trajectory_steps == 0:
             print("Only saving the initial observation")
-            results.append(
-                {
-                    "env_idx": env_idx,
-                    "fo_observation": fo_observation_str,
-                    "fo_prompt": fo_prompt,
-                    "po_observation": po_observation_str,
-                    "po_prompt": po_prompt,
-                    "fo_cell_types": fo_cell_types,
-                    "po_cell_types": po_cell_types,
-                    "classes_map": repr(partially_observable_env.grid_cells),
-                    "optimal_trajectory_length": optimal_trajectory_length,
-                    "trajectory_step": 0,
-                }
-            )
+            if args.decoder_training_only:
+                # Only save essential columns for decoder training
+                results.append(
+                    {
+                        "env_idx": env_idx,
+                        "fo_observation": fo_observation_str,
+                        "action_sequence": action_sequence_json,
+                        "start_pos": str(start_pos),
+                        "goal_pos": str(goal_pos),
+                        "optimal_trajectory_length": trajectory_length,
+                    }
+                )
+            else:
+                # Save all columns (original behavior)
+                results.append(
+                    {
+                        "env_idx": env_idx,
+                        "fo_observation": fo_observation_str,
+                        "fo_prompt": fo_prompt,
+                        "po_observation": po_observation_str,
+                        "po_prompt": po_prompt,
+                        "fo_cell_types": fo_cell_types,
+                        "po_cell_types": po_cell_types,
+                        "classes_map": repr(partially_observable_env.grid_cells),
+                        "optimal_trajectory_length": trajectory_length,
+                        "trajectory_step": 0,
+                        "action_sequence": action_sequence_json,
+                        "start_pos": str(start_pos),
+                        "goal_pos": str(goal_pos),
+                    }
+                )
         elif args.trajectory_steps > 0:
             stepsize = len(trajectory.steps) // args.trajectory_steps
             steps_to_save = np.linspace(
@@ -145,21 +214,42 @@ if __name__ == "__main__":
                         step_idx
                     ]
                 )
-                results.append(
-                    {
-                        "env_idx": env_idx,
-                        "fo_observation": fo_observation,
-                        "fo_prompt": fo_prompt,
-                        "po_observation": po_observation,
-                        "po_prompt": po_prompt,
-                        "fo_cell_types": fo_cell_types,
-                        "po_cell_types": po_cell_types,
-                        "classes_map": repr(partially_observable_env.grid_cells),
-                        "optimal_trajectory_length": optimal_trajectory_length
-                        - step_idx,
-                        "trajectory_step": step_idx,
-                    }
-                )
+                # Extract action sequence from current step onwards
+                remaining_actions = [int(step.action) for step in trajectory.steps[step_idx:]]
+                remaining_actions_json = json.dumps(remaining_actions)
+                
+                if args.decoder_training_only:
+                    # Only save essential columns for decoder training
+                    results.append(
+                        {
+                            "env_idx": env_idx,
+                            "fo_observation": fo_observation,
+                            "action_sequence": remaining_actions_json,
+                            "start_pos": str(start_pos),
+                            "goal_pos": str(goal_pos),
+                            "optimal_trajectory_length": trajectory_length - step_idx,
+                        }
+                    )
+                else:
+                    # Save all columns (original behavior)
+                    results.append(
+                        {
+                            "env_idx": env_idx,
+                            "fo_observation": fo_observation,
+                            "fo_prompt": fo_prompt,
+                            "po_observation": po_observation,
+                            "po_prompt": po_prompt,
+                            "fo_cell_types": fo_cell_types,
+                            "po_cell_types": po_cell_types,
+                            "classes_map": repr(partially_observable_env.grid_cells),
+                            "optimal_trajectory_length": trajectory_length
+                            - step_idx,
+                            "trajectory_step": step_idx,
+                            "action_sequence": remaining_actions_json,
+                            "start_pos": str(start_pos),
+                            "goal_pos": str(goal_pos),
+                        }
+                    )
         else:
             raise ValueError(f"Invalid trajectory steps: {args.trajectory_steps}")
 
