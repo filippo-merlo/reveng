@@ -148,6 +148,54 @@ class BaseLLMInterface:
             logger.error(f"Model request failed: {exc}\n{traceback.format_exc()}")
             raise
 
+    def _make_chat_completion_request(
+        self,
+        messages: list[dict],
+        response_format: Optional[BaseModel] = None,
+        **kwargs,
+    ) -> Tuple[any, float, any]:
+        """Make a completion request using provided chat messages.
+
+        Returns:
+            Tuple of (parsed_response_or_content, cost_in_usd, raw_response)
+        """
+        try:
+            response, cost = self._completion_with_retry(
+                model=self.model_name,
+                messages=messages,
+                temperature=self.temperature,
+                response_format=response_format,
+                **kwargs,
+            )
+
+            # Parse response
+            content = response.choices[0].message.content
+            if not content:
+                choice = response.choices[0]
+                logger.error(f"Empty response from model. Full choice object: {choice}")
+                finish_reason = choice.get("finish_reason", "N/A")
+                raise ValueError(
+                    f"Empty response from model. Finish reason: '{finish_reason}'"
+                )
+
+            content, response = inject_thinking_for_qwen(
+                model_name=self.model_name, content=content, response=response
+            )
+
+            if response_format:
+                try:
+                    parsed_response = response_format.model_validate_json(content)
+                    return parsed_response, cost, response
+                except Exception as exc:
+                    logger.error(f"Failed to parse response: {exc}")
+                    logger.debug(f"Raw response content: {content}")
+                    raise ValueError(f"Invalid response format from model: {exc}")
+
+            return content, cost, response
+        except Exception as exc:
+            logger.error(f"Model request failed: {exc}\n{traceback.format_exc()}")
+            raise
+
 
 def inject_thinking_for_qwen(
     model_name: str, content: str, response: dict

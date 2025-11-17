@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from reveng.agents.llm_agent import (
     PartiallyObservableLLMAgent,
+    PartiallyObservableWithChatHistoryLLMAgent,
     PartiallyObservableWithNoteLLMAgent,
 )
 from reveng.datatypes import CustomJSONEncoder
@@ -34,6 +35,7 @@ def _process_single_environment(
     env,
     top_logprobs: int = 20,
     use_note: bool = False,
+    use_logprobs: bool = True,
     num_trajectories: int = 2,
     max_steps_per_trajectory: int = 10,
 ):
@@ -51,6 +53,10 @@ def _process_single_environment(
             model_name=model_name, name="LLM agent without note"
         )
 
+    llm_agent = PartiallyObservableWithChatHistoryLLMAgent(
+        model_name=model_name, name="LLM agent with chat history"
+    )
+
     trajectories = collect_trajectories(
         env,
         grid_id,
@@ -58,6 +64,7 @@ def _process_single_environment(
         num_trajectories=num_trajectories,
         max_steps_per_trajectory=max_steps_per_trajectory,
         top_logprobs=top_logprobs,
+        use_logprobs=use_logprobs,
     )
 
     # Save metadata
@@ -102,6 +109,11 @@ if __name__ == "__main__":
         help="Number of top logprobs to return (default: 20)",
     )
     parser.add_argument(
+        "--use-logprobs",
+        action="store_true",
+        help="Use logprobs to select actions",
+    )
+    parser.add_argument(
         "--use-note",
         action="store_true",
         help="Use note-based policy elicitation",
@@ -143,7 +155,7 @@ if __name__ == "__main__":
     # Iterate through environments
     environments = list(dataset.items())  # All environments
     environments = remove_already_processed_environments(environments, output_base)
-    environments = environments[-2:-1]  # todo remove
+    environments = environments[52:53]  # todo remove
     print(f"Remaining environments to process: {len(environments)}")
     # Parallel processing of environments
     cost_summaries = []
@@ -157,6 +169,7 @@ if __name__ == "__main__":
                 env,
                 args.top_logprobs,
                 args.use_note,
+                args.use_logprobs,
                 args.num_trajectories,
                 args.max_steps_per_trajectory,
             ): grid_id

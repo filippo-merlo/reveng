@@ -70,6 +70,7 @@ def generate_one_trajectory(
     agent: Any,
     max_steps_per_trajectory: int,
     top_logprobs: int = 20,
+    use_logprobs: bool = True,
 ) -> Trajectory:
     """Generate a single trajectory from an agent in an environment."""
     trajectory = Trajectory(steps=[], final_reward=None, traj_metadata={})
@@ -83,11 +84,11 @@ def generate_one_trajectory(
     ):
         if agent.__class__.__name__ == "PartiallyObservableWithNoteLLMAgent":
             action, note, metadata = agent.select_action(
-                text_env, top_logprobs=top_logprobs, return_logprobs=True
+                text_env, top_logprobs=top_logprobs, return_logprobs=use_logprobs
             )
         else:
             action, metadata = agent.select_action(
-                text_env, top_logprobs=top_logprobs, return_logprobs=True
+                text_env, top_logprobs=top_logprobs, return_logprobs=use_logprobs
             )
             note = None
         next_obs, reward, terminated, truncated, info = text_env.step(action)
@@ -124,13 +125,14 @@ def collect_trajectories(
     num_trajectories: int,
     max_steps_per_trajectory: int,
     top_logprobs: int = 20,
+    use_logprobs: bool = True,
 ) -> List[Trajectory]:
     """Collect trajectories from an agent in an environment."""
     trajectories = []
     for _ in range(num_trajectories):
         agent.reset()
         trajectory = generate_one_trajectory(
-            env, grid_id, agent, max_steps_per_trajectory, top_logprobs
+            env, grid_id, agent, max_steps_per_trajectory, top_logprobs, use_logprobs
         )
         trajectories.append(trajectory)
     return trajectories

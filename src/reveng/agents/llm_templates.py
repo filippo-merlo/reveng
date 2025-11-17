@@ -1,5 +1,7 @@
 """Pydantic models for LLM judge scoring responses."""
 
+from typing import List
+
 from pydantic import BaseModel, Field, field_validator
 
 from reveng.datatypes import Action
@@ -44,3 +46,12 @@ class ActionWithNoteResponse(BaseModel):
         if isinstance(v, str):
             return Action[v.upper()]
         return v
+
+
+class Message(BaseModel):
+    role: str
+    content: str
+
+
+class Messages:
+    messages: List[Message]

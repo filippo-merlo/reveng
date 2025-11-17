@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from reveng.agents.agent_abc import Agent
-from reveng.agents.llm_templates import ActionResponse, ActionWithNoteResponse
+from reveng.agents.llm_templates import ActionResponse, ActionWithNoteResponse, Message
 from reveng.datatypes import Action
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
     FogOfWarTextWrapper,
@@ -55,6 +55,73 @@ class LLMAgent(Agent, BaseLLMInterface):
         self.total_cost = 0.0
         self.call_count = 0
         self.response_format = response_format
+
+    def _get_agent_pos(self, env: MiniGridEnv | FogOfWarTextWrapper) -> Any:
+        base_env = getattr(env, "unwrapped", env)
+        return (
+            tuple(base_env.agent_pos) if hasattr(base_env, "agent_pos") else "unknown"
+        )
+
+    def _build_request_params(
+        self, return_logprobs: bool, top_logprobs: int
+    ) -> tuple[Optional[BaseModel], dict]:
+        extra_kwargs: dict[str, Any] = {}
+        response_format: Optional[BaseModel] = self.response_format
+        extra_kwargs["reasoning_effort"] = "medium"
+        extra_kwargs["allowed_openai_params"] = [
+            "logprobs",
+            "top_logprobs",
+            "reasoning_effort",
+        ]
+        response_format = None
+        if return_logprobs:
+            extra_kwargs["logprobs"] = True
+            extra_kwargs["top_logprobs"] = top_logprobs
+            response_format = None
+        return response_format, extra_kwargs
+
+    def _finalize_cost_and_logprobs(
+        self, cost: float, raw_response: Any, return_logprobs: bool
+    ) -> Optional[list[dict]]:
+        # Track costs
+        self.total_cost += cost
+        self.call_count += 1
+
+        # Capture logprobs if requested
+        if return_logprobs:
+            logprobs_raw = raw_response.choices[0].logprobs.content
+            return self._serialize_logprobs(logprobs_raw)
+        return None
+
+    def _build_base_metadata(
+        self, action_value: int, cost: float, logprobs_serialized: Optional[list[dict]]
+    ) -> dict:
+        return {
+            "agents_name": self.name,
+            "llm_response": action_value,
+            "call_cost": cost,
+            "total_cost": self.total_cost,
+            "call_count": self.call_count,
+            "logprobs": logprobs_serialized,
+        }
+
+    def _request_action_via_prompt(
+        self, prompt: str, return_logprobs: bool, top_logprobs: int
+    ) -> tuple[Any, float, Any, Optional[list[dict]]]:
+        response_format, extra_kwargs = self._build_request_params(
+            return_logprobs, top_logprobs
+        )
+        response, cost, raw_response = self._make_completion_request(
+            prompt, response_format=response_format, **extra_kwargs
+        )
+        if response_format is None:
+            action_response = self.response_format.model_validate_json(response)
+        else:
+            action_response = response
+        logprobs_serialized = self._finalize_cost_and_logprobs(
+            cost, raw_response, return_logprobs
+        )
+        return action_response, cost, raw_response, logprobs_serialized
 
     def _serialize_logprobs(self, logprobs_obj: Any) -> Optional[list[dict]]:
         """Convert model logprobs object(s) to JSON-serializable dictionaries.
@@ -146,52 +213,17 @@ class LLMAgent(Agent, BaseLLMInterface):
         prompt = self._generate_action_query_prompt(env)
 
         try:
-            extra_kwargs = {}
-            response_format = self.response_format
-            logprobs_raw = None
-            if return_logprobs:
-                extra_kwargs["logprobs"] = True
-                extra_kwargs["top_logprobs"] = top_logprobs
-                extra_kwargs["reasoning_effort"] = "low"
-                extra_kwargs["allowed_openai_params"] = [
-                    "logprobs",
-                    "top_logprobs",
-                    "reasoning_effort",
-                ]
-                response_format = None
-
-            response, cost, raw_response = self._make_completion_request(
-                prompt,
-                response_format=response_format,
-                **extra_kwargs,
+            action_response, cost, raw_response, logprobs_serialized = (
+                self._request_action_via_prompt(prompt, return_logprobs, top_logprobs)
             )
-
-            if response_format is None:
-                action_response = self.response_format.model_validate_json(response)
-            else:
-                action_response = response
-
-            # Track costs
-            self.total_cost += cost
-            self.call_count += 1
-
-            if return_logprobs:
-                logprobs_raw = raw_response.choices[0].logprobs.content
-                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
-            else:
-                logprobs_serialized = None
 
             logger.info(
                 f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
             )
-            return action_response.action.value, {
-                "agents_name": self.name,
-                "llm_response": action_response.action.value,
-                "call_cost": cost,
-                "total_cost": self.total_cost,
-                "call_count": self.call_count,
-                "logprobs": logprobs_serialized,
-            }
+            meta = self._build_base_metadata(
+                action_response.action.value, cost, logprobs_serialized
+            )
+            return action_response.action.value, meta
 
         except Exception as e:
             logger.error(
@@ -275,9 +307,9 @@ class PartiallyObservableLLMAgent(LLMAgent):
     def add_to_history(self, action: Action, position: Tuple[int, int]) -> None:
         """Add an action and position to the history."""
         if isinstance(position[0], np.int64):
-            new_position = (int(position[0].item()), int(position[1].item()))
+            new_position = (int(position[1].item()), int(position[0].item()))
         else:
-            new_position = (position[0], position[1])
+            new_position = (position[1], position[0])
         self.history.append((new_position, action.to_str()))
 
     def select_action(
@@ -335,57 +367,19 @@ class PartiallyObservableLLMAgent(LLMAgent):
         prompt = self._generate_action_query_prompt(env)
 
         try:
-            extra_kwargs = {}
-            response_format = self.response_format
-            logprobs_raw = None
-            if return_logprobs:
-                extra_kwargs["logprobs"] = True
-                extra_kwargs["top_logprobs"] = top_logprobs
-                extra_kwargs["reasoning_effort"] = "low"
-                extra_kwargs["allowed_openai_params"] = [
-                    "logprobs",
-                    "top_logprobs",
-                    "reasoning_effort",
-                ]
-                response_format = None
-
-            response, cost, raw_response = self._make_completion_request(
-                prompt,
-                response_format=response_format,
-                **extra_kwargs,
+            action_response, cost, raw_response, logprobs_serialized = (
+                self._request_action_via_prompt(prompt, return_logprobs, top_logprobs)
             )
-
-            if response_format is None:
-                action_response = self.response_format.model_validate_json(response)
-            else:
-                action_response = response
-
-            # Track costs
-            self.total_cost += cost
-            self.call_count += 1
-
-            if return_logprobs:
-                logprobs_raw = raw_response.choices[0].logprobs.content
-                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
-            else:
-                logprobs_serialized = None
 
             logger.info(
                 f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
             )
             self.add_to_history(action_response.action, agent_pos)
-            return (
-                action_response.action.value,
-                {
-                    "agents_name": self.name,
-                    "llm_response": action_response.action.value,
-                    "call_cost": cost,
-                    "total_cost": self.total_cost,
-                    "call_count": self.call_count,
-                    "history": self.history.copy(),
-                    "logprobs": logprobs_serialized,
-                },
+            meta = self._build_base_metadata(
+                action_response.action.value, cost, logprobs_serialized
             )
+            meta["history"] = self.history.copy()
+            return action_response.action.value, meta
 
         except Exception as e:
             logger.error(
@@ -502,58 +496,19 @@ class PartiallyObservableWithNoteLLMAgent(LLMAgent):
         prompt = self._generate_action_query_prompt(env)
 
         try:
-            extra_kwargs = {}
-            response_format = self.response_format
-            logprobs_raw = None
-            if return_logprobs:
-                extra_kwargs["logprobs"] = True
-                extra_kwargs["top_logprobs"] = top_logprobs
-                extra_kwargs["reasoning_effort"] = "low"
-                extra_kwargs["allowed_openai_params"] = [
-                    "logprobs",
-                    "top_logprobs",
-                    "reasoning_effort",
-                ]
-                response_format = None
-
-            response, cost, raw_response = self._make_completion_request(
-                prompt,
-                response_format=response_format,
-                **extra_kwargs,
+            action_response, cost, raw_response, logprobs_serialized = (
+                self._request_action_via_prompt(prompt, return_logprobs, top_logprobs)
             )
-
-            if response_format is None:
-                action_response = self.response_format.model_validate_json(response)
-            else:
-                action_response = response
-
-            # Track costs
-            self.total_cost += cost
-            self.call_count += 1
-
-            if return_logprobs:
-                logprobs_raw = raw_response.choices[0].logprobs.content
-                logprobs_serialized = self._serialize_logprobs(logprobs_raw)
-            else:
-                logprobs_serialized = None
 
             logger.info(
                 f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
             )
             self.update_note(action_response.note)
-            return (
-                action_response.action.value,
-                action_response.note,
-                {
-                    "agents_name": self.name,
-                    "llm_response": action_response.action.value,
-                    "note": action_response.note,
-                    "call_cost": cost,
-                    "total_cost": self.total_cost,
-                    "call_count": self.call_count,
-                    "logprobs": logprobs_serialized,
-                },
+            meta = self._build_base_metadata(
+                action_response.action.value, cost, logprobs_serialized
             )
+            meta["note"] = action_response.note
+            return action_response.action.value, action_response.note, meta
 
         except Exception as e:
             logger.error(
@@ -567,3 +522,133 @@ class PartiallyObservableWithNoteLLMAgent(LLMAgent):
         self.total_cost = 0.0
         self.call_count = 0
         self.current_note = ""
+
+
+class PartiallyObservableWithChatHistoryLLMAgent(PartiallyObservableLLMAgent):
+    """LLM agent with partial observability that also maintains full chat history."""
+
+    def __init__(
+        self,
+        model_name: str,
+        temperature: float = 0.0,
+        name: Optional[str] = None,
+        template_path: Optional[Path] = None,
+        response_format: BaseModel = ActionResponse,
+    ) -> None:
+        super().__init__(
+            model_name=model_name,
+            temperature=temperature,
+            name=name,
+            template_path=template_path,
+            response_format=response_format,
+        )
+        # Full conversation history as Message BaseModels
+        self.chat_messages: list[Message] = []
+
+    def _request_action_via_messages(
+        self, messages_payload: list[dict], return_logprobs: bool, top_logprobs: int
+    ) -> tuple[Any, float, Any, Optional[list[dict]]]:
+        response_format, extra_kwargs = self._build_request_params(
+            return_logprobs, top_logprobs
+        )
+        response, cost, raw_response = self._make_chat_completion_request(
+            messages=messages_payload,
+            response_format=response_format,
+            **extra_kwargs,
+        )
+        if response_format is None:
+            action_response = self.response_format.model_validate_json(response)
+        else:
+            action_response = response
+        logprobs_serialized = self._finalize_cost_and_logprobs(
+            cost, raw_response, return_logprobs
+        )
+        return action_response, cost, raw_response, logprobs_serialized
+
+    def select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, dict]:
+        """Select an action using accumulated chat messages + state/action history."""
+        try:
+            return self._select_action(env, return_logprobs, top_logprobs, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error getting action for position {env.agent_pos} from LLM after retrying: {e}"
+            )
+            return -1, {"agents_name": self.name}
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_random_exponential(multiplier=1, min=1, max=10),
+        reraise=True,
+    )
+    def _select_action(
+        self,
+        env: FogOfWarTextWrapper,
+        return_logprobs: bool = False,
+        top_logprobs: int = 20,
+        **kwargs: Any,
+    ) -> Tuple[int, dict]:
+        """Use the LLM with full chat history; also includes state/action history in prompt."""
+        base_env = getattr(env, "unwrapped", env)
+        agent_pos = (
+            tuple(base_env.agent_pos) if hasattr(base_env, "agent_pos") else "unknown"
+        )
+
+        logger.info(
+            f"Getting action from LLM model {self.model_name} for position {agent_pos}"
+        )
+
+        # Build the new user prompt including current observation and state/action history
+        prompt = self._generate_action_query_prompt(env)
+
+        try:
+            # Convert Message BaseModels to dicts and append current user prompt
+            messages_payload = [m.model_dump() for m in self.chat_messages]
+            messages_payload.append({"role": "user", "content": prompt})
+
+            action_response, cost, raw_response, logprobs_serialized = (
+                self._request_action_via_messages(
+                    messages_payload, return_logprobs, top_logprobs
+                )
+            )
+
+            logger.info(
+                f"LLM selected action {action_response.action}, cost: ${cost:.6f}, total: ${self.total_cost:.6f}"
+            )
+
+            # Record assistant message content and user message into chat history
+            # Append user message for this turn
+            self.chat_messages.append(Message(role="user", content=prompt))
+            # Append assistant message (raw content)
+            assistant_content = raw_response.choices[0].message.content
+            self.chat_messages.append(
+                Message(
+                    role="assistant",
+                    content=f"<thinking>\n{raw_response.choices[0].message.reasoning_content}\n</thinking>\n{assistant_content}",
+                )
+            )
+
+            # Record state/action pair history
+            self.add_to_history(action_response.action, agent_pos)
+
+            meta = self._build_base_metadata(
+                action_response.action.value, cost, logprobs_serialized
+            )
+            meta["history"] = self.history.copy()
+            return action_response.action.value, meta
+
+        except Exception as e:
+            logger.error(
+                f"Error getting action from LLM: {e}\n{traceback.format_exc()}"
+            )
+            raise
+
+    def reset(self) -> None:
+        """Reset agent state, including chat and state/action histories and cost tracking."""
+        super().reset()
+        self.chat_messages = []
