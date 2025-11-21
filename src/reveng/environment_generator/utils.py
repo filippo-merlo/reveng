@@ -193,6 +193,36 @@ def goal_exists(env: MiniGridEnv) -> bool:
     return hasattr(env, "goal_pos") and env.goal_pos is not None
 
 
+def get_env_diagnostics(env: MiniGridEnv) -> dict:
+    """
+    Get comprehensive diagnostics about the environment.
+
+    Args:
+        env: The MiniGrid environment to analyze
+
+    Returns:
+        Dictionary containing:
+            - goal_exists (bool): Whether a goal exists in the environment
+            - is_solvable (bool): Whether the agent can reach the goal
+            - optimal_path_length (float): Length of optimal path, or inf if unsolvable
+            - num_dead_ends (int): Number of dead ends in the environment
+            - dead_ends (list[tuple[int, int]]): List of dead end positions
+    """
+    has_goal = goal_exists(env)
+    solvable = is_solvable(env)
+    optimal_length = compute_optimal_path_length(env) if solvable else float("inf")
+    dead_ends = get_all_dead_ends(env)
+    num_dead_ends = len(dead_ends)
+
+    return {
+        "goal_exists": has_goal,
+        "is_solvable": solvable,
+        "optimal_path_length": optimal_length,
+        "num_dead_ends": num_dead_ends,
+        "dead_ends": dead_ends,
+    }
+
+
 def run_random_episodes(
     episodes=5,
     size=10,
