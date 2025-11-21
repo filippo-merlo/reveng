@@ -210,26 +210,103 @@ class Simple2DNavigationEnv(MiniGridEnv):
         obs = self.gen_obs()
         return obs, reward, terminated, truncated, {}
 
+    def set_env_from_list(self, grid_list):
+        """
+        Set the environment from a list of lists with strings.
+
+        Args:
+            grid_list: List of lists where each string represents a cell.
+                Uses symbols from DEFAULT_CELLS_CONFIG in text_obs_wrapper.py:
+                'A' - Agent position
+                '#' - Wall
+                'G' - Goal
+                '_' - Empty space (open space)
+
+        Example:
+            grid = [
+                ['#', '#', '#', '#', '#'],
+                ['#', 'A', '_', '_', '#'],
+                ['#', '_', '#', '_', '#'],
+                ['#', '_', '_', 'G', '#'],
+                ['#', '#', '#', '#', '#']
+            ]
+        """
+        height = len(grid_list)
+        width = len(grid_list[0]) if height > 0 else 0
+
+        # Recreate the grid with the specified dimensions
+        self.grid = Grid(width, height)
+
+        agent_pos = None
+        goal_pos = None
+
+        # Parse the grid list and place objects
+        # Using symbols from DEFAULT_CELLS_CONFIG:
+        # 'A' = agent, '#' = wall, 'G' = goal, '_' = empty
+        for j, row in enumerate(grid_list):
+            for i, cell in enumerate(row):
+                cell_str = cell.strip()
+
+                if cell_str == "#":
+                    self.grid.set(i, j, Wall())
+                elif cell_str == "A":
+                    agent_pos = (i, j)
+                    self.grid.set(i, j, None)  # Agent position is empty
+                elif cell_str == "G":
+                    goal_pos = (i, j)
+                    self.put_obj(Goal(), i, j)
+                elif cell_str == "_":
+                    self.grid.set(i, j, None)  # Empty space
+                else:
+                    # Default to empty for unknown characters
+                    self.grid.set(i, j, None)
+
+        # Set agent position and direction
+        if agent_pos is None:
+            raise ValueError("Agent position 'A' not found in grid_list")
+        self.agent_pos = agent_pos
+        self.agent_dir = (
+            self.agent_start_dir_user if self.agent_start_dir_user is not None else 0
+        )
+        self.goal_pos = goal_pos
+
+        self.mission = "Reach the Goal"
+
 
 if __name__ == "__main__":
+    import time
+
     print("--- Low complexity maze (complexity=0.2) ---")
     low_complexity_env = Simple2DNavigationEnv(
         size=21, complexity=0.2, render_mode="human"
     )
     low_complexity_env.reset()
     low_complexity_env.render()
-    import time
-
     time.sleep(3)
     low_complexity_env.close()
 
     print("--- Highest complexity maze (complexity=1.0) ---")
-    low_complexity_env = Simple2DNavigationEnv(
+    high_complexity_env = Simple2DNavigationEnv(
         size=21, complexity=1.0, render_mode="human"
     )
-    low_complexity_env.reset()
-    low_complexity_env.render()
-    import time
-
+    high_complexity_env.reset()
+    high_complexity_env.render()
     time.sleep(3)
-    low_complexity_env.close()
+    high_complexity_env.close()
+
+    print("--- Custom environment from list ---")
+    custom_env = Simple2DNavigationEnv(size=7, render_mode="human")
+    custom_grid = [
+        ["#", "#", "#", "#", "#", "#", "#"],
+        ["#", "A", "_", "_", "_", "_", "#"],
+        ["#", "_", "#", "#", "#", "_", "#"],
+        ["#", "_", "_", "_", "#", "_", "#"],
+        ["#", "#", "#", "_", "#", "_", "#"],
+        ["#", "_", "_", "_", "_", "G", "#"],
+        ["#", "#", "#", "#", "#", "#", "#"],
+    ]
+    custom_env.reset()
+    custom_env.set_env_from_list(custom_grid)
+    custom_env.render()
+    time.sleep(3)
+    custom_env.close()
