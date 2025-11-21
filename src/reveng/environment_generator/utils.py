@@ -122,6 +122,64 @@ def compute_optimal_path_length(env: MiniGridEnv) -> float:
     return float("inf")  # No path found
 
 
+def is_solvable(env: MiniGridEnv) -> bool:
+    """
+    Check if the agent can reach the goal using BFS (Breadth-First Search).
+
+    Args:
+        env: The MiniGrid environment to check
+
+    Returns:
+        True if the agent can reach the goal, False otherwise
+    """
+    # If there's no goal, consider it unsolvable
+    if not hasattr(env, "goal_pos") or env.goal_pos is None:
+        return False
+
+    # Get start and goal positions
+    start = tuple(env.agent_pos)
+    goal = tuple(env.goal_pos)
+
+    # If agent is already at the goal
+    if start == goal:
+        return True
+
+    # BFS to find if there's a path from start to goal
+    from collections import deque
+
+    queue = deque([start])
+    visited = {start}
+
+    while queue:
+        x, y = queue.popleft()
+
+        # Check all four directions
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+
+            # Skip if already visited
+            if (nx, ny) in visited:
+                continue
+
+            # Check if the new position is within bounds
+            if nx < 0 or ny < 0 or nx >= env.width or ny >= env.height:
+                continue
+
+            # Get the cell at the new position
+            cell = env.grid.get(nx, ny)
+
+            # Check if we can move to this cell (None or goal)
+            if cell is None or (hasattr(cell, "can_overlap") and cell.can_overlap()):
+                visited.add((nx, ny))
+                queue.append((nx, ny))
+
+                # Check if we reached the goal
+                if (nx, ny) == goal:
+                    return True
+
+    return False
+
+
 def run_random_episodes(
     episodes=5,
     size=10,
