@@ -180,6 +180,19 @@ def is_solvable(env: MiniGridEnv) -> bool:
     return False
 
 
+def goal_exists(env: MiniGridEnv) -> bool:
+    """
+    Check if a goal exists in the environment.
+
+    Args:
+        env: The MiniGrid environment to check
+
+    Returns:
+        True if a goal exists, False otherwise
+    """
+    return hasattr(env, "goal_pos") and env.goal_pos is not None
+
+
 def run_random_episodes(
     episodes=5,
     size=10,
