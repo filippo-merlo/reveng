@@ -246,9 +246,11 @@ class RoomsMinigridEnv(Simple2DNavigationEnv):
                     and adj_cell.type == "door"
                     and adj_cell.is_locked
                 ):
-                    # Open the door (unlock and open it)
-                    adj_cell.is_locked = False
-                    adj_cell.is_open = True
+                    # Remove the door from the grid
+                    self.grid.set(adj_x, adj_y, None)
+                    # Previous behavior (kept for reference):
+                    # adj_cell.is_locked = False
+                    # adj_cell.is_open = True
 
         # Check if agent reached the goal
         if self.agent_pos == self.goal_pos:
@@ -436,6 +438,8 @@ if __name__ == "__main__":
                     print(
                         f"Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}"
                     )
+                    print("\nCurrent Grid State:")
+                    print(obs)
 
                     if terminated:
                         print("\n🎉 Goal reached!")
