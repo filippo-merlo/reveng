@@ -70,8 +70,6 @@ def generate_trajectories(
           - action: str (string form of the action taken)
           - reward: float (reward from env.step)
           - thought: Optional[str] (present only if include_thoughts=True)
-        - action_space: List[str] (optional names of actions; may be left empty if
-          action semantics are captured in Step.action)
         - final_reward: float (sum of rewards over the trajectory)
         - Error modes:
       - ValueError for invalid num_trajectories or max_steps_per_trajectory values
@@ -96,7 +94,6 @@ def generate_trajectories(
                         {"observation": str, "action": str, "reward": float | null, "thought": str | null},
                         ...
                     ],
-                    "action_space": [str, ...],
                     "final_reward": float | null
                 }
             Files are named as f"{save_prefix}_{i}.json" in save_dir, where i starts at 1.
@@ -189,6 +186,7 @@ def generate_one_trajectory(
                 action=str(action),
                 reward=float(reward),
                 metadata=metadata,
+                note=None,
             )
         )
 
@@ -199,7 +197,6 @@ def generate_one_trajectory(
 
     traj_obj = Trajectory(
         steps=steps,
-        action_space=[],
         final_reward=total_reward,
         traj_metadata=traj_metadata,
     )

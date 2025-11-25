@@ -272,6 +272,12 @@ class Simple2DNavigationEnv(MiniGridEnv):
 
         self.mission = "Reach the Goal"
 
+    def reset(self, **kwargs):
+        print(
+            "*******************************************WARNING: YOU HAVE CALLED RESET METHOD. THIS WILL REGENERATE THE GRID!!!*******************************************"
+        )
+        return super().reset(**kwargs)
+
 
 if __name__ == "__main__":
     import time

@@ -67,7 +67,7 @@ class LLMAgent(Agent, BaseLLMInterface):
     ) -> tuple[Optional[BaseModel], dict]:
         extra_kwargs: dict[str, Any] = {}
         response_format: Optional[BaseModel] = self.response_format
-        extra_kwargs["reasoning_effort"] = "medium"
+        extra_kwargs["reasoning_effort"] = "low"
         extra_kwargs["allowed_openai_params"] = [
             "logprobs",
             "top_logprobs",
@@ -551,6 +551,8 @@ class PartiallyObservableWithChatHistoryLLMAgent(PartiallyObservableLLMAgent):
         response_format, extra_kwargs = self._build_request_params(
             return_logprobs, top_logprobs
         )
+        # Override reasoning effort to medium for chat history
+        extra_kwargs["reasoning_effort"] = "medium"
         response, cost, raw_response = self._make_chat_completion_request(
             messages=messages_payload,
             response_format=response_format,
@@ -629,7 +631,7 @@ class PartiallyObservableWithChatHistoryLLMAgent(PartiallyObservableLLMAgent):
             self.chat_messages.append(
                 Message(
                     role="assistant",
-                    content=f"<thinking>\n{raw_response.choices[0].message.reasoning_content}\n</thinking>\n{assistant_content}",
+                    content=assistant_content,
                 )
             )
 

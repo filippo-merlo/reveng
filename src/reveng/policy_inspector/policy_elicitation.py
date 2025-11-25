@@ -9,6 +9,7 @@ from minigrid.minigrid_env import MiniGridEnv
 from tqdm import tqdm
 
 from reveng.datatypes import Step, Trajectory
+from reveng.environment_generator.utils import clone_env, get_env_diagnostics
 from reveng.environment_generator.wrappers.text_obs_wrapper import FogOfWarTextWrapper
 
 
@@ -64,6 +65,17 @@ def elicit_policy(
     return policy, policy_metadata
 
 
+def find_dynamic_steps_per_trajectory(env: MiniGridEnv) -> int:
+    """Find the dynamic steps per trajectory for an environment."""
+    number_of_traversable_cells = 0
+    for i in range(env.width):
+        for j in range(env.height):
+            cell = env.grid.get(i, j)
+            if cell is None or (cell is not None and cell.type != "wall"):
+                number_of_traversable_cells += 1
+    return int(1.5 * number_of_traversable_cells)
+
+
 def generate_one_trajectory(
     env: MiniGridEnv,
     grid_id: str,
@@ -71,12 +83,17 @@ def generate_one_trajectory(
     max_steps_per_trajectory: int,
     top_logprobs: int = 20,
     use_logprobs: bool = True,
+    dynamic_steps_per_trajectory: bool = False,
 ) -> Trajectory:
     """Generate a single trajectory from an agent in an environment."""
     trajectory = Trajectory(steps=[], final_reward=None, traj_metadata={})
-    text_env = FogOfWarTextWrapper(env)
+    # deepcopy the env to avoid modifying the original env
+    # we don't want to use Minigrid's `reset` method because it screws with the actual grid!
+    text_env = FogOfWarTextWrapper(clone_env(env))
+    obs = text_env.observation(text_env.env.gen_obs())
 
-    obs, info = text_env.reset()
+    if dynamic_steps_per_trajectory:
+        max_steps_per_trajectory = find_dynamic_steps_per_trajectory(env)
 
     for i in tqdm(
         range(max_steps_per_trajectory),
@@ -104,9 +121,15 @@ def generate_one_trajectory(
 
         obs = next_obs
 
-        if terminated or truncated or i == max_steps_per_trajectory - 1:
+        if truncated:
+            # we use `max_steps_per_trajectory` to limit the number of steps, so this should not happen
+            # truncated happens when the env's internal step limit is reached
+            raise ValueError(f"Trajectory truncated at step {i + 1}. Not expected!")
+
+        if terminated:
             break
 
+    env_diag = get_env_diagnostics(env)
     trajectory.final_reward = trajectory.steps[-1].reward
     trajectory.traj_metadata = {
         "grid_id": grid_id,
@@ -114,6 +137,10 @@ def generate_one_trajectory(
         "model_name": agent.model_name,
         "top_logprobs": top_logprobs,
         "max_steps_per_trajectory": max_steps_per_trajectory,
+        "reached_goal": terminated,
+        "steps_taken": i + 1,
+        "using_dynamic_steps_per_trajectory": dynamic_steps_per_trajectory,
+        **env_diag,
     }
     return trajectory
 
@@ -126,13 +153,20 @@ def collect_trajectories(
     max_steps_per_trajectory: int,
     top_logprobs: int = 20,
     use_logprobs: bool = True,
+    dynamic_steps_per_trajectory: bool = False,
 ) -> List[Trajectory]:
     """Collect trajectories from an agent in an environment."""
     trajectories = []
     for _ in range(num_trajectories):
         agent.reset()
         trajectory = generate_one_trajectory(
-            env, grid_id, agent, max_steps_per_trajectory, top_logprobs, use_logprobs
+            env,
+            grid_id,
+            agent,
+            max_steps_per_trajectory,
+            top_logprobs,
+            use_logprobs,
+            dynamic_steps_per_trajectory,
         )
         trajectories.append(trajectory)
     return trajectories
