@@ -242,8 +242,16 @@ class LLMAgent(Agent, BaseLLMInterface):
         # Get text observation using existing wrapper
         obs_text = self._get_text_observation(env)
 
+        # Check if agent is carrying a key (only relevant for templates that use it)
+        base_env = getattr(env, "unwrapped", env)
+        carrying_key = False
+        if hasattr(base_env, "carrying") and base_env.carrying is not None:
+            carrying_key = base_env.carrying.type == "key"
+
+        # Pass carrying_key to template (will be ignored if template doesn't use it)
         prompt = self.render_template(
             grid_state=obs_text,
+            carrying_key=carrying_key,
         )
         return prompt
 
