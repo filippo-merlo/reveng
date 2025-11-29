@@ -38,6 +38,7 @@ def _process_single_environment(
     use_logprobs: bool = True,
     num_trajectories: int = 2,
     max_steps_per_trajectory: int = 10,
+    dynamic_steps_per_trajectory: bool = False,
 ):
     """Run policy elicitation and visualizations for a single environment.
 
@@ -65,6 +66,7 @@ def _process_single_environment(
         max_steps_per_trajectory=max_steps_per_trajectory,
         top_logprobs=top_logprobs,
         use_logprobs=use_logprobs,
+        dynamic_steps_per_trajectory=dynamic_steps_per_trajectory,
     )
 
     # Save metadata
@@ -128,7 +130,12 @@ if __name__ == "__main__":
         "--max-steps-per-trajectory",
         type=int,
         default=10,
-        help="Maximum number of steps per trajectory (default: 10)",
+        help="Maximum number of steps per trajectory (default: 10). Ignored if dynamic-steps-per-trajectory is True.",
+    )
+    parser.add_argument(
+        "--dynamic-steps-per-trajectory",
+        action="store_true",
+        help="Use dynamic steps per trajectory",
     )
 
     args = parser.parse_args()
@@ -172,6 +179,7 @@ if __name__ == "__main__":
                 args.use_logprobs,
                 args.num_trajectories,
                 args.max_steps_per_trajectory,
+                args.dynamic_steps_per_trajectory,
             ): grid_id
             for grid_id, env in environments
         }
@@ -185,6 +193,7 @@ if __name__ == "__main__":
                 cost_summaries.append(cost_summary)
             except Exception as exc:
                 print(f"Environment {grid_id} failed with error: {exc}")
+                raise exc
 
     # Aggregate and print cost summary across all workers
     total_cost = sum(cs.get("total_cost", 0.0) for cs in cost_summaries)

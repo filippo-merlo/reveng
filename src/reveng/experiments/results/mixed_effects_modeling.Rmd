@@ -1,0 +1,167 @@
+---
+title: "Mixed-Effects Analysis: Transforms vs Baseline"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(performance)
+library(broom.mixed)
+# Optional: install.packages("glmmTMB") if you haven't
+# library(glmmTMB)
+````
+
+## 1. Data import
+
+```{r import}
+# Replace with your actual data paths or loading code
+
+# Example:
+# df      <- read_csv("df.csv")      # has transform_type, grid_size, complexity, instance_id, ..., error_rate
+# df_base <- read_csv("df_base.csv") # same minus transform_type (baseline condition)
+
+# If df and df_base are already in the environment from RStudio, this chunk can be left as-is.
+```
+
+## 2. Combine baseline and transform data
+
+```{r combine}
+df_base2 <- df_base %>%
+  mutate(transform_type = "baseline")
+
+df_all <- bind_rows(df, df_base2) %>%
+  mutate(
+    transform_type = factor(transform_type),
+    grid_size      = factor(grid_size),
+    complexity     = factor(complexity)
+  ) %>%
+  droplevels()
+
+# Set baseline as reference
+df_all <- df_all %>%
+  mutate(transform_type = relevel(transform_type, ref = "baseline"))
+
+# Quick check
+df_all %>% count(transform_type)
+```
+
+## 3. Exploratory plots
+
+```{r eda-overall, fig.width=7, fig.height=4}
+ggplot(df_all, aes(x = transform_type, y = error_rate)) +
+  geom_violin(fill = "grey90", color = "grey40") +
+  geom_boxplot(width = 0.15, outlier.shape = NA) +
+  labs(x = NULL, y = "error_rate", title = "Error rate by transform_type")
+```
+
+```{r eda-facets, fig.width=10, fig.height=7}
+ggplot(df_all, aes(x = transform_type, y = error_rate)) +
+  geom_boxplot(outlier.alpha = 0.3) +
+  facet_grid(grid_size ~ complexity, labeller = label_both) +
+  labs(x = NULL, y = "error_rate",
+       title = "Error rate by transform_type within each (grid_size, complexity)")
+```
+
+## 4. Linear mixed-effects model
+
+Model:
+`error_rate ~ transform_type * grid_size * complexity + (1 | instance_id)`
+
+```{r lmm-fit, message=FALSE, warning=FALSE}
+lmm <- lmer(
+  error_rate ~ transform_type * grid_size * complexity + (1 | instance_id),
+  data = df_all,
+  REML = FALSE
+)
+
+summary(lmm)
+anova(lmm, type = 2)
+```
+
+## 5. Post-hoc contrasts vs baseline
+
+### 5.1 Overall contrasts (averaged over grid_size & complexity)
+
+```{r posthoc-main, message=FALSE, warning=FALSE}
+emm_main <- emmeans(lmm, ~ transform_type)
+contrast_main <- contrast(emm_main, method = "trt.vs.ctrl", ref = "baseline", adjust = "holm")
+summary(contrast_main, infer = TRUE)
+```
+
+### 5.2 Contrasts by grid_size
+
+```{r posthoc-grid, message=FALSE, warning=FALSE}
+emm_grid <- emmeans(lmm, ~ transform_type | grid_size)
+contrast_grid <- contrast(emm_grid, method = "trt.vs.ctrl", ref = "baseline", adjust = "holm")
+summary(contrast_grid, infer = TRUE)
+```
+
+### 5.3 Contrasts by complexity
+
+```{r posthoc-complexity, message=FALSE, warning=FALSE}
+emm_cplx <- emmeans(lmm, ~ transform_type | complexity)
+contrast_cplx <- contrast(emm_cplx, method = "trt.vs.ctrl", ref = "baseline", adjust = "holm")
+summary(contrast_cplx, infer = TRUE)
+```
+
+## 6. Diagnostics
+
+```{r diagnostics, fig.width=7, fig.height=6}
+check_model(lmm)
+```
+
+```{r diagnostic-plots, fig.width=7, fig.height=6}
+par(mfrow = c(1, 2))
+plot(lmm, which = 1)  # residuals vs fitted
+qqnorm(residuals(lmm)); qqline(residuals(lmm))
+par(mfrow = c(1, 1))
+```
+
+## 7. Optional: Beta regression with random effects
+
+(Use if `error_rate` is in (0,1) and you want a beta model instead of Gaussian.)
+
+```{r beta-regression, eval=FALSE}
+library(glmmTMB)
+
+# Small adjustment to keep (0,1); tweak eps as needed
+eps <- 1e-4
+df_all_beta <- df_all %>%
+  mutate(error_rate_beta = pmin(pmax(error_rate, eps), 1 - eps))
+
+# Fit beta regression with random intercept
+tmb <- glmmTMB(
+  error_rate_beta ~ transform_type * grid_size * complexity + (1 | instance_id),
+  data = df_all_beta,
+  family = beta_family(link = "logit")
+)
+
+summary(tmb)
+
+# Post-hoc on the response scale
+emm_beta <- emmeans(tmb, ~ transform_type, type = "response")
+contrast_beta <- contrast(emm_beta, method = "trt.vs.ctrl", ref = "baseline", adjust = "holm")
+summary(contrast_beta, infer = TRUE)
+```
+
+## 8. Save model results
+
+```{r save-results}
+fixed_tbl <- tidy(lmm, effects = "fixed")
+write_csv(fixed_tbl, "lmm_fixed_effects.csv")
+saveRDS(lmm, "lmm_fit.rds")
+
+fixed_tbl
+```
+
+```
+
+That’s the whole pipeline: combine data → explore → fit LMM → contrasts vs baseline → diagnostics → optional beta model → save outputs. Once you knit this, you’ll have a reproducible analysis you can poke at alongside your plots.
+```
