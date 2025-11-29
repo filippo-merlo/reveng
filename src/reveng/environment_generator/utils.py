@@ -122,6 +122,33 @@ def remove_doors_and_keys(env: MiniGridEnv) -> MiniGridEnv:
     return cloned_env
 
 
+def remove_coin(env: MiniGridEnv) -> MiniGridEnv:
+    """
+    Create a copy of the environment with the coin removed.
+
+    Args:
+        env: The environment to copy and modify
+
+    Returns:
+        A new environment instance with the coin removed
+    """
+    # Clone the environment
+    cloned_env = clone_env(env)
+
+    # Remove any coins (balls) from the grid
+    for x in range(cloned_env.width):
+        for y in range(cloned_env.height):
+            cell = cloned_env.grid.get(x, y)
+            if cell is not None and cell.type == "ball":
+                cloned_env.grid.set(x, y, None)
+
+    # Reset coin_collected flag if it exists
+    if hasattr(cloned_env, "coin_collected"):
+        cloned_env.coin_collected = False
+
+    return cloned_env
+
+
 def compute_optimal_path_length(env: MiniGridEnv) -> float:
     """
     Compute the shortest path length using generate_one_trajectory with AlphaStarAgent.
