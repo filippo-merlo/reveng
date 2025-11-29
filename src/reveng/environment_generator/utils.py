@@ -94,6 +94,34 @@ def clone_env(env: MiniGridEnv) -> MiniGridEnv:
     return cloned
 
 
+def remove_doors_and_keys(env: MiniGridEnv) -> MiniGridEnv:
+    """
+    Create a copy of the environment with all doors and keys removed.
+
+    Args:
+        env: The environment to copy and modify
+
+    Returns:
+        A new environment instance with doors and keys removed
+    """
+    # Clone the environment
+    cloned_env = clone_env(env)
+
+    # Remove any doors and keys from the grid
+    for x in range(cloned_env.width):
+        for y in range(cloned_env.height):
+            cell = cloned_env.grid.get(x, y)
+            if cell is not None and cell.type in ["door", "key"]:
+                cloned_env.grid.set(x, y, None)
+
+    # Clear the carrying inventory if it contains a key
+    if hasattr(cloned_env, "carrying") and cloned_env.carrying is not None:
+        if cloned_env.carrying.type == "key":
+            cloned_env.carrying = None
+
+    return cloned_env
+
+
 def compute_optimal_path_length(env: MiniGridEnv) -> float:
     """
     Compute the shortest path length using generate_one_trajectory with AlphaStarAgent.

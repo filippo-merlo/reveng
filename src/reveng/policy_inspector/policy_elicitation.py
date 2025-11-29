@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -6,6 +7,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch
 from minigrid.minigrid_env import MiniGridEnv
+from PIL import Image
 from tqdm import tqdm
 
 from reveng.datatypes import Step, Trajectory
@@ -83,17 +85,49 @@ def generate_one_trajectory(
     max_steps_per_trajectory: int,
     top_logprobs: int = 20,
     use_logprobs: bool = True,
+    text_wrapper_cls: type = FogOfWarTextWrapper,
+    save_images: bool = False,
+    image_save_dir: Optional[str] = None,
     dynamic_steps_per_trajectory: bool = False,
 ) -> Trajectory:
-    """Generate a single trajectory from an agent in an environment."""
+    """Generate a single trajectory from an agent in an environment.
+
+    Args:
+        env: The MiniGrid environment
+        grid_id: Identifier for the grid/environment
+        agent: The agent to generate trajectory with
+        max_steps_per_trajectory: Maximum number of steps
+        top_logprobs: Number of top logprobs to return
+        use_logprobs: Whether to use logprobs
+        text_wrapper_cls: Text wrapper class to use
+        save_images: Whether to save observation images at each step
+        image_save_dir: Directory to save images (required if save_images=True)
+    """
+
     trajectory = Trajectory(steps=[], final_reward=None, traj_metadata={})
     # deepcopy the env to avoid modifying the original env
     # we don't want to use Minigrid's `reset` method because it screws with the actual grid!
-    text_env = FogOfWarTextWrapper(clone_env(env))
+    text_env = text_wrapper_cls(clone_env(env))
     obs = text_env.observation(text_env.env.gen_obs())
+
+    # Setup image saving if requested
+    if save_images:
+        if image_save_dir is None:
+            raise ValueError("image_save_dir must be provided when save_images=True")
+        image_path = Path(image_save_dir)
+        image_path.mkdir(parents=True, exist_ok=True)
 
     if dynamic_steps_per_trajectory:
         max_steps_per_trajectory = find_dynamic_steps_per_trajectory(env)
+
+    # Setup image saving if requested - use a cloned environment
+    img_env_clone = None
+    if save_images:
+        img_env_clone = clone_env(env)
+        # Save initial observation using get_frame
+        img_array = img_env_clone.get_frame(highlight=True, tile_size=32)
+        img = Image.fromarray(img_array)
+        img.save(image_path / "step_0000.png")
 
     for i in tqdm(
         range(max_steps_per_trajectory),
@@ -118,6 +152,13 @@ def generate_one_trajectory(
                 metadata=metadata,
             )
         )
+
+        # Save observation image after taking action
+        if save_images and img_env_clone is not None:
+            img_env_clone.step(action)
+            img_array = img_env_clone.get_frame(highlight=True, tile_size=32)
+            img = Image.fromarray(img_array)
+            img.save(image_path / f"step_{i + 1:04d}.png")
 
         obs = next_obs
 

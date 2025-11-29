@@ -15,6 +15,8 @@ DEFAULT_CELLS_CONFIG = {
     "wall": {"symbol": "#", "description": "Wall"},
     "goal": {"symbol": "G", "description": "Goal"},
     "empty": {"symbol": "_", "description": "Open space (can be visited)"},
+    "door": {"symbol": "D", "description": "Door (locked or unlocked)"},
+    "key": {"symbol": "K", "description": "Key (can unlock doors)"},
     "unknown_obj": {"symbol": "?", "description": "Unknown object"},
     "fog": {
         "symbol": "*",
