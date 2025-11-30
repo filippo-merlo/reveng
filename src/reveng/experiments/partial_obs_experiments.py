@@ -28,6 +28,16 @@ def remove_already_processed_environments(
     ]
 
 
+def get_env_subset(
+    environments: List[Tuple[str, Simple2DNavigationEnv]],
+) -> List[Tuple[str, Simple2DNavigationEnv]]:
+    for i, (grid_id, env) in enumerate(environments):
+        if env.width == 11 and env.height == 11:
+            cutoff = i
+            break
+    return environments[:cutoff]
+
+
 def _process_single_environment(
     model_name: str,
     output_base: Path,
@@ -161,8 +171,9 @@ if __name__ == "__main__":
 
     # Iterate through environments
     environments = list(dataset.items())  # All environments
+    environments = get_env_subset(environments)
+
     environments = remove_already_processed_environments(environments, output_base)
-    environments = environments[52:53]  # todo remove
     print(f"Remaining environments to process: {len(environments)}")
     # Parallel processing of environments
     cost_summaries = []

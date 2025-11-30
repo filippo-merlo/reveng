@@ -201,7 +201,10 @@ def inject_thinking_for_qwen(
     model_name: str, content: str, response: dict
 ) -> Tuple[str, dict]:
     """Inject thinking for Qwen models. There is a bug for qwen3 30b a3b in fireworks where the response is not properly formatted."""
-    if "</think>" in content and "qwen3-30b-a3b" in model_name:
+    if "</think>" in content and (
+        "qwen3-30b-a3b" in model_name or "Qwen3-235B-A22B-Thinking-2507" in model_name
+    ):
+        assert "</think>" in content, "No </think> in qwen content response!"
         reasoning_content = content.split("</think>")[0]
         content = content.split("</think>")[1]
         response.choices[0].message.content = content.strip()

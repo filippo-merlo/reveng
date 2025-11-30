@@ -14,11 +14,8 @@ from tqdm import tqdm
 
 from reveng.agents import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.policy_inspector.extract_action_prob_utils import get_action_probs
 from reveng.policy_inspector.policy_elicitation import (
     elicit_policy,
-    visualize_policy_probabilities_threadsafe,
-    visualize_policy_threadsafe,
 )
 
 
@@ -53,20 +50,20 @@ def _process_single_environment(
         json.dump(llm_policy_metadata, f, indent=2)
 
     # Visualize policy
-    policy_viz_path = output_base / f"{grid_id}_policy.png"
-    visualize_policy_threadsafe(
-        llm_policy,
-        env,
-        filename=str(policy_viz_path),
-        title=f"LLM Agent Policy - {grid_id}",
-    )
+    # policy_viz_path = output_base / f"{grid_id}_policy.png"
+    # visualize_policy_threadsafe(
+    #     llm_policy,
+    #     env,
+    #     filename=str(policy_viz_path),
+    #     title=f"LLM Agent Policy - {grid_id}",
+    # )
 
     # Process and visualize policy probabilities
-    action_probabilities = get_action_probs(llm_policy_metadata)
-    prob_viz_path = output_base / f"{grid_id}_probabilities.png"
-    visualize_policy_probabilities_threadsafe(
-        action_probabilities, env, filename=str(prob_viz_path)
-    )
+    # action_probabilities = get_action_probs(llm_policy_metadata)
+    # prob_viz_path = output_base / f"{grid_id}_probabilities.png"
+    # visualize_policy_probabilities_threadsafe(
+    #     action_probabilities, env, filename=str(prob_viz_path)
+    # )
 
     return grid_id, llm_agent.get_cost_summary()
 

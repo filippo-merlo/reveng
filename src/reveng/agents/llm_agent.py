@@ -559,8 +559,6 @@ class PartiallyObservableWithChatHistoryLLMAgent(PartiallyObservableLLMAgent):
         response_format, extra_kwargs = self._build_request_params(
             return_logprobs, top_logprobs
         )
-        # Override reasoning effort to medium for chat history
-        extra_kwargs["reasoning_effort"] = "medium"
         response, cost, raw_response = self._make_chat_completion_request(
             messages=messages_payload,
             response_format=response_format,
