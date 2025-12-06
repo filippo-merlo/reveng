@@ -9,11 +9,14 @@ class CompactJSONEncoder(json.JSONEncoder):
     CONTAINER_TYPES = (list, tuple, dict)
     """Container datatypes include primitives or other containers."""
 
-    MAX_WIDTH = 120
+    MAX_WIDTH = 150
     """Maximum width of a container that might be put on a single line."""
 
     MAX_ITEMS = 10
     """Maximum number of items in container that might be put on single line."""
+
+    MULTILINE_KEYS = {"grid_state"}
+    """Keys whose values should always be formatted on multiple lines."""
 
     def __init__(self, *args, **kwargs):
         # using this class without indentation is pointless
@@ -21,6 +24,7 @@ class CompactJSONEncoder(json.JSONEncoder):
             kwargs["indent"] = 4
         super().__init__(*args, **kwargs)
         self.indentation_level = 0
+        self.current_key = None
 
     def encode(self, o):
         """Encode JSON object *o* with respect to single line lists."""
@@ -68,9 +72,13 @@ class CompactJSONEncoder(json.JSONEncoder):
             )
 
         self.indentation_level += 1
-        output = [
-            f"{self.indent_str}{self.encode(k)}: {self.encode(v)}" for k, v in o.items()
-        ]
+        output = []
+        for k, v in o.items():
+            # Set current key context before encoding the value
+            self.current_key = k
+            encoded_value = self.encode(v)
+            output.append(f"{self.indent_str}{self.encode(k)}: {encoded_value}")
+            self.current_key = None
         self.indentation_level -= 1
 
         return "{\n" + ",\n".join(output) + "\n" + self.indent_str + "}"
@@ -80,6 +88,9 @@ class CompactJSONEncoder(json.JSONEncoder):
         return self.encode(o)
 
     def _put_on_single_line(self, o):
+        # Force multiline formatting for values of specific keys
+        if self.current_key in self.MULTILINE_KEYS:
+            return False
         return (
             len(o) <= self.MAX_ITEMS
             and len(str(o)) - 2 <= self.MAX_WIDTH

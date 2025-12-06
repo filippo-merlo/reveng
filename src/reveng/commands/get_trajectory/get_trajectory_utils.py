@@ -1,5 +1,7 @@
+import re
 import json
 import traceback
+import logging
 from typing import Any
 from copy import deepcopy
 from tenacity import retry, stop_after_attempt, wait_random_exponential
@@ -11,6 +13,8 @@ from reveng.datatypes import Step, Trajectory
 from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
 from reveng.environment_generator.wrappers.text_obs_wrapper import FullObservabilityTextWrapper
 
+logger = logging.getLogger(__file__)
+
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_random_exponential(multiplier=1, min=5, max=120),
@@ -20,12 +24,12 @@ def completion_with_retry(**generation_kwargs) -> tuple[Any, float]:
     try:
         response = completion(**generation_kwargs)
     except Exception as e:
-        print(f"Model request failed: {e}\n{traceback.format_exc()}")
+        logger.error(f"Model request failed: {e}\n{traceback.format_exc()}")
         raise
     try:
         cost = completion_cost(completion_response=response)
     except Exception as e:
-        print(f"Failed to calculate cost: {e}")
+        logger.error(f"Failed to calculate cost: {e}")
         cost = 0.0
     return response, cost
 
@@ -71,9 +75,52 @@ def to_dic_list(txt, tokenizer, groups = ["prompt"], start_idx = 0):
             "id": i,
             "token": t,
             "token_id": id,
-            "token_groups": groups
+            "token_groups": deepcopy(groups)
         })
     return out
+
+
+def annotate_output_tokens(model_name: str, output_tokens):
+    if "openai/gpt-oss-20b" in model_name:
+        template_special_tokens = {'<|channel|>', '<|message|>', '<|end|>', '<|start|>', '<|return|>'}
+    
+        in_template_mode = True
+        current_section = None
+        
+        for token in output_tokens:
+            token_str = token['token']
+            
+            if token_str in template_special_tokens:
+                token['token_groups'].append('template')
+                
+                if token_str == '<|end|>':
+                    in_template_mode = True
+                elif token_str == '<|message|>':
+                    in_template_mode = False
+                elif token_str == '<|return|>':
+                    current_section = None
+            
+            elif in_template_mode:
+                # Template mode: tokens like 'analysis', 'final', 'assistant'
+                token['token_groups'].append('template')
+                
+                # Track which section we're about to enter
+                if token_str in ['analysis', 'final']:
+                    current_section = token_str
+            
+            else:
+                # Content mode
+                if current_section:
+                    token['token_groups'].append(current_section)
+                
+                # Check for action words (case-insensitive, ignoring Ġ and Ċ)
+                clean_token = token_str.replace('Ġ', '').replace('Ċ', '')
+                if re.match(r'^(up|down|left|right)$', clean_token, re.IGNORECASE):
+                    token['token_groups'].append('action')
+        
+        return output_tokens
+    else:
+        raise NotImplementedError(f"The selected model {model_name} is not supported for output annotation.")
 
 
 def generate_trajectory(
@@ -111,8 +158,8 @@ def generate_trajectory(
         unwrapped_env = getattr(env, "unwrapped", env)
         prompt = agent._generate_action_query_prompt(unwrapped_env)
         if verbose:
-            print(f"Step {step_count}")
-            print(agent._get_text_observation(env))
+            logger.info(f"Step {step_count}")
+            logger.info(agent._get_text_observation(env))
         full_output, cost = completion_with_retry(
             model=agent.model_name,
             messages=[{"role": "user", "content": prompt}],
@@ -125,7 +172,7 @@ def generate_trajectory(
 
         if verbose:
             print("Output text:", final_output)
-            print("Predicted action:", action)
+            print("Predicted action:", action_name)
 
         metadata = agent._build_base_metadata(action, cost, logprobs_serialized)
         metadata["action"] = action_name
