@@ -1,6 +1,9 @@
+"""Generate and save agent trajectories in navigation environments with detailed token-level analysis."""
+
 import numpy as np
 import json
 import logging
+from typing import Literal
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from reveng.agents.llm_agent import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
@@ -12,18 +15,57 @@ from reveng.commands.get_trajectory.compact_json_encoder import CompactJSONEncod
 logger = logging.getLogger(__file__)
 
 def get_trajectory(
-    grid_size = 5,
-    grid_complexity = 0,
-    max_steps_per_trajectory = 50,
-    max_tokens = 10000,
-    temperature = 0.7,
-    top_p = 0.95,
-    top_logprobs = 5,
-    reasoning_effort = "low",
-    model_name = "together_ai/openai/gpt-oss-20b",
-    observation_placeholders = ["grid_state"],
-    output_path = "output.json"
+    grid_size: int = 5,
+    grid_complexity: int = 0,
+    max_steps_per_trajectory: int = 50,
+    max_tokens: int = 10000,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
+    top_logprobs: int = 5,
+    seed: int = 42,
+    reasoning_effort: Literal["low", "medium", "high"] = "low",
+    model_name: str = "together_ai/openai/gpt-oss-20b",
+    observation_placeholders: list[str] = ["grid_state"],
+    output_path: str = "get_trajectory_example_output.json",
+    verbose: bool = False
 ):
+    """Generate an agent trajectory in a 2D navigation environment and save detailed results to JSON.
+
+    Creates a Simple2D navigation environment, runs an LLM agent to generate a trajectory,
+    and saves comprehensive information including grid parameters, model parameters, prompt
+    template with token-level analysis, and trajectory steps with token probabilities.
+
+    Args:
+        grid_size: Size of the square grid environment.
+        grid_complexity: Complexity level of obstacles in the grid (higher = more obstacles).
+        max_steps_per_trajectory: Maximum number of steps to generate in the trajectory.
+        max_tokens: Maximum tokens for model generation per step.
+        temperature: Sampling temperature for the model (higher = more random).
+        top_p: Nucleus sampling parameter (cumulative probability threshold).
+        top_logprobs: Number of top log probabilities to return for each token.
+        seed: Random seed for reproducibility.
+        reasoning_effort: Reasoning effort level for the model ("low", "medium", or "high").
+        model_name: Name of the model in format "provider/model_id".
+        observation_placeholders: List of placeholder names in the prompt template.
+        output_path: Path to save the output JSON file.
+        verbose: If True, print detailed logging during trajectory generation.
+
+    Returns:
+        None. Results are saved to the specified output_path.
+
+    The output JSON structure follows the format expected by the trace viewer: https://github.com/SPAR-Telos/interp/tree/trace-viewer
+        - grid_params: Grid configuration (size, complexity, start/goal positions, A* distance, legend)
+        - model_params: Model configuration (name, provider, sampling parameters, seed)
+        - prompt: Prompt template with token-level annotations (prefix, suffix, placeholder tokens)
+        - steps: List of trajectory steps, each containing:
+            - step_id: Step number
+            - grid_state: Grid visualization as list of strings
+            - grid_state_tokens: Tokenized grid state with annotations
+            - prompt_suffix_tokens: Tokenized prompt suffix
+            - agent_action: Action taken by the agent
+            - output_text: Model's generated output text
+            - output_tokens: Tokenized output with probabilities and annotations
+    """
     base_env = FullObservabilityTextWrapper(
         Simple2DNavigationEnv(size=grid_size, complexity=grid_complexity)
     )
@@ -41,9 +83,10 @@ def get_trajectory(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "reasoning_effort": reasoning_effort
+            "reasoning_effort": reasoning_effort,
+            "seed": seed
         },
-        verbose=True
+        verbose=verbose
     )
 
     grid_params = {}
@@ -71,6 +114,7 @@ def get_trajectory(
     model_params["reasoning_effort"] = reasoning_effort
     model_params["top_p"] = top_p
     model_params["top_logprobs"] = top_logprobs
+    model_params["seed"] = seed
 
     prompt = {}
 

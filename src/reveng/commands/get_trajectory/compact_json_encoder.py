@@ -1,10 +1,25 @@
+"""Custom JSON encoder that formats output compactly while maintaining readability."""
+
 from __future__ import annotations
 
 import json
 
 
 class CompactJSONEncoder(json.JSONEncoder):
-    """A JSON Encoder that puts small containers on single lines."""
+    """A JSON Encoder that puts small containers on single lines.
+
+    This encoder intelligently formats JSON output by placing small containers
+    (lists, tuples, dicts) on a single line when they meet size criteria, while
+    expanding larger containers across multiple lines for readability.
+
+    Attributes:
+        CONTAINER_TYPES: Tuple of container datatypes that can hold primitives or other containers.
+        MAX_WIDTH: Maximum character width for a container to be formatted on a single line.
+        MAX_ITEMS: Maximum number of items in a container to be formatted on a single line.
+        MULTILINE_KEYS: Set of key names whose values should always be formatted on multiple lines.
+        indentation_level: Current nesting depth for proper indentation.
+        current_key: The current object key being encoded (used for multiline key detection).
+    """
 
     CONTAINER_TYPES = (list, tuple, dict)
     """Container datatypes include primitives or other containers."""

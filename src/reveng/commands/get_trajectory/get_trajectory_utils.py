@@ -1,3 +1,5 @@
+"""Utility functions for trajectory generation, token processing, and LLM completion handling."""
+
 import re
 import json
 import traceback
@@ -21,6 +23,20 @@ logger = logging.getLogger(__file__)
     reraise=True,
 )
 def completion_with_retry(**generation_kwargs) -> tuple[Any, float]:
+    """Call LLM completion API with automatic retry on failure.
+
+    Wraps the litellm completion API with exponential backoff retry logic
+    to handle transient failures. Also calculates the cost of the completion.
+
+    Args:
+        **generation_kwargs: Keyword arguments passed to litellm.completion().
+
+    Returns:
+        tuple[Any, float]: A tuple of (response object, completion cost in USD).
+
+    Raises:
+        Exception: Re-raises the last exception after 5 retry attempts.
+    """
     try:
         response = completion(**generation_kwargs)
     except Exception as e:
@@ -35,6 +51,19 @@ def completion_with_retry(**generation_kwargs) -> tuple[Any, float]:
 
 
 def parse_action(model_output: str) -> tuple[int, str]:
+    """Parse the model's text output to extract the action.
+
+    Expects the model output to be a JSON string containing an "action" key
+    with one of the directional values: LEFT, RIGHT, UP, DOWN.
+
+    Args:
+        model_output: The raw text output from the model.
+
+    Returns:
+        tuple[int, str]: A tuple of (action_id, action_name) where:
+            - action_id: Integer action code (0=LEFT, 1=RIGHT, 2=UP, 3=DOWN, -1=invalid)
+            - action_name: String action name or "N/A" if parsing failed.
+    """
     try:
         action_dic = json.loads(model_output)
         action = action_dic["action"]
@@ -53,6 +82,18 @@ def parse_action(model_output: str) -> tuple[int, str]:
 
 
 def get_astar_distance(env, observation):
+    """Calculate the optimal path length using A* algorithm.
+
+    Runs the A* pathfinding algorithm on a cloned environment to determine
+    the optimal number of steps required to reach the goal from the current state.
+
+    Args:
+        env: The environment instance.
+        observation: Current observation from the environment.
+
+    Returns:
+        int: The number of steps in the optimal A* path to the goal.
+    """
     astar = AlphaStarAgent()
     clone_env = deepcopy(env)
     trajectory = generate_one_trajectory(
@@ -66,6 +107,24 @@ def get_astar_distance(env, observation):
 
 
 def to_dic_list(txt, tokenizer, groups = ["prompt"], start_idx = 0):
+    """Convert text to a list of token dictionaries with metadata.
+
+    Tokenizes the input text and creates a structured representation where each token
+    has an ID, token string, token ID, and group labels for categorization.
+
+    Args:
+        txt: The text to tokenize.
+        tokenizer: HuggingFace tokenizer instance.
+        groups: List of group labels to assign to all tokens (default: ["prompt"]).
+        start_idx: Starting index for token IDs (default: 0).
+
+    Returns:
+        list[dict]: List of token dictionaries, each containing:
+            - id: Sequential token index
+            - token: Token string representation
+            - token_id: Vocabulary ID of the token
+            - token_groups: List of group labels for this token
+    """
     tokens = tokenizer.tokenize(txt)
     ids = tokenizer.encode(txt)
 
@@ -81,6 +140,24 @@ def to_dic_list(txt, tokenizer, groups = ["prompt"], start_idx = 0):
 
 
 def annotate_output_tokens(model_name: str, output_tokens):
+    """Annotate output tokens with model-specific group labels.
+
+    Adds semantic group labels to output tokens based on model-specific formatting
+    and special tokens. Currently supports the GPT-OSS-20B model format with
+    structured output channels (analysis, final, etc.).
+
+    Args:
+        model_name: Name of the model in format "provider/model_id".
+        output_tokens: List of token dictionaries from to_dic_list().
+
+    Returns:
+        list[dict]: The same token list with updated token_groups containing
+            labels like 'template', 'analysis', 'final', 'action' based on
+            the model's output structure.
+
+    Raises:
+        NotImplementedError: If the model is not supported for annotation.
+    """
     if "openai/gpt-oss-20b" in model_name:
         template_special_tokens = {'<|channel|>', '<|message|>', '<|end|>', '<|start|>', '<|return|>'}
     
@@ -131,6 +208,27 @@ def generate_trajectory(
     metadata: dict = {},
     verbose: bool = False
 ):
+    """Generate a complete agent trajectory in the environment.
+
+    Runs an LLM agent through the environment, collecting observations, actions,
+    rewards, and model outputs at each step. Also computes A* optimal distance
+    and records agent/goal positions.
+
+    Args:
+        env: The wrapped environment instance with text observations.
+        agent: The LLM agent to generate actions.
+        max_steps_per_trajectory: Maximum number of steps before truncating.
+        generation_kwargs: Dictionary of parameters for the LLM completion call
+            (e.g., temperature, top_p, max_tokens, top_logprobs).
+        metadata: Additional metadata to include (currently unused).
+        verbose: If True, log detailed information during generation.
+
+    Returns:
+        Trajectory: A Trajectory object containing:
+            - steps: List of Step objects with observations, actions, rewards, and metadata
+            - final_reward: Total accumulated reward
+            - traj_metadata: Dictionary with start/goal positions and A* distance
+    """
     generation_kwargs["allowed_openai_params"] = list(generation_kwargs.keys())
 
     steps: list[Step] = []
