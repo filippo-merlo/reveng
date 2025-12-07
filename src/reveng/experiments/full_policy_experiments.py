@@ -123,6 +123,7 @@ if __name__ == "__main__":
     # Iterate through environments
     environments = list(dataset.items())  # All environments
     environments = remove_already_processed_environments(environments, output_base)
+    environments = environments[::-1]  # process in reverse order to do slow ones first
     print(f"Remaining environments to process: {len(environments)}")
     # Parallel processing of environments
     cost_summaries = []

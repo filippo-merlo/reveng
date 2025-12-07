@@ -80,10 +80,14 @@ class BaseLLMInterface:
             Tuple of (response_object, cost_in_usd)
         """
         try:
+            if "cohere" in self.model_name or "fireworks" in self.model_name:
+                max_tokens = 4096
+            else:
+                max_tokens = 10000
             response = completion(
                 **kwargs,
                 response_format=response_format,
-                max_tokens=10000 if "cohere" not in self.model_name else 8192,
+                max_tokens=max_tokens,
             )
         except Exception as e:
             logger.error(f"Model request failed: {e}\n{traceback.format_exc()}")
@@ -202,7 +206,8 @@ def inject_thinking_for_qwen(
 ) -> Tuple[str, dict]:
     """Inject thinking for Qwen models. There is a bug for qwen3 30b a3b in fireworks where the response is not properly formatted."""
     if "</think>" in content and (
-        "qwen3-30b-a3b" in model_name or "Qwen3-235B-A22B-Thinking-2507" in model_name
+        "qwen3-30b-a3b".lower() in model_name.lower()
+        or "Qwen3-235B-A22B-Thinking-2507".lower() in model_name.lower()
     ):
         assert "</think>" in content, "No </think> in qwen content response!"
         reasoning_content = content.split("</think>")[0]

@@ -1,4 +1,6 @@
+import json
 import logging
+import re
 import traceback
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -68,13 +70,15 @@ class LLMAgent(Agent, BaseLLMInterface):
         extra_kwargs: dict[str, Any] = {}
         response_format: Optional[BaseModel] = self.response_format
         extra_kwargs["reasoning_effort"] = "low"
+        if "qwen" in self.model_name and "fireworks" in self.model_name:
+            extra_kwargs["reasoning_effort"] = 2048
         extra_kwargs["allowed_openai_params"] = [
             "logprobs",
             "top_logprobs",
             "reasoning_effort",
         ]
         response_format = None
-        if return_logprobs:
+        if return_logprobs and top_logprobs > 0:
             extra_kwargs["logprobs"] = True
             extra_kwargs["top_logprobs"] = top_logprobs
             response_format = None
@@ -90,6 +94,11 @@ class LLMAgent(Agent, BaseLLMInterface):
         # Capture logprobs if requested
         if return_logprobs:
             logprobs_raw = raw_response.choices[0].logprobs.content
+            # for some models, the logprobs are in the top_logprobs field instead of the content field
+            if logprobs_raw is None:
+                assert raw_response.choices[0].logprobs.top_logprobs is not None
+                logprobs_raw = raw_response.choices[0].logprobs.top_logprobs
+                return self._serialize_logprobs_old(logprobs_raw)
             return self._serialize_logprobs(logprobs_raw)
         return None
 
@@ -105,6 +114,45 @@ class LLMAgent(Agent, BaseLLMInterface):
             "logprobs": logprobs_serialized,
         }
 
+    def _try_to_clean_response(self, response: Any) -> Any:
+        """Try to clean the response by removing any trailing commas and other invalid JSON.
+
+        Also attempts to extract a JSON object from the end of the response,
+        since some models return extra text before the JSON output.
+        """
+
+        if isinstance(response, str):
+            # Remove any trailing commas before closing objects/arrays
+            response = re.sub(r",(\s*[}\]])", r"\1", response)
+
+            # Try to extract JSON object from the end of the response
+            # Some models output text before the JSON, so we look for the last { and }
+            last_brace = response.rfind("}")
+            if last_brace != -1:
+                # Find the matching opening brace by counting braces from the end
+                brace_count = 0
+                start_pos = None
+                for i in range(last_brace, -1, -1):
+                    if response[i] == "}":
+                        brace_count += 1
+                    elif response[i] == "{":
+                        brace_count -= 1
+                        if brace_count == 0:
+                            start_pos = i
+                            break
+
+                if start_pos is not None and start_pos > 0:
+                    # There's text before the JSON object, try to extract just the JSON
+                    potential_json = response[start_pos : last_brace + 1]
+                    try:
+                        # Verify it's valid JSON before using it
+                        json.loads(potential_json)
+                        response = potential_json
+                    except json.JSONDecodeError:
+                        # Keep the original cleaned response if extraction fails
+                        pass
+        return response
+
     def _request_action_via_prompt(
         self, prompt: str, return_logprobs: bool, top_logprobs: int
     ) -> tuple[Any, float, Any, Optional[list[dict]]]:
@@ -115,6 +163,7 @@ class LLMAgent(Agent, BaseLLMInterface):
             prompt, response_format=response_format, **extra_kwargs
         )
         if response_format is None:
+            response = self._try_to_clean_response(response)
             action_response = self.response_format.model_validate_json(response)
         else:
             action_response = response
@@ -156,6 +205,50 @@ class LLMAgent(Agent, BaseLLMInterface):
             return [serialize_token_logprob(x) for x in list(logprobs_obj)]
         except Exception:
             # Fall back: if it's already a list[dict] or otherwise JSON-ready, return as-is
+            return logprobs_obj  # type: ignore[return-value]
+
+    def _serialize_logprobs_old(self, logprobs_obj: Any) -> Optional[list[dict]]:
+        """Convert old-format logprobs (list of token->logprob dicts) to JSON-serializable format.
+
+        The old format is a list of dictionaries where each dict maps token strings
+        to their log probabilities, e.g.:
+            [{'{\n': -0.019, '{': -4.03, ...}, {' ': 0, '   ': -35, ...}, ...]
+
+        This converts to the same output structure as _serialize_logprobs.
+        """
+        if logprobs_obj is None:
+            return None
+
+        def serialize_position(token_logprob_dict: dict) -> dict:
+            # Sort by logprob descending to get the top token first
+            sorted_tokens = sorted(
+                token_logprob_dict.items(), key=lambda x: x[1], reverse=True
+            )
+            top_token, top_logprob = sorted_tokens[0] if sorted_tokens else (None, None)
+
+            top_logprobs_list = [
+                {
+                    "token": token,
+                    "bytes": None,
+                    "logprob": logprob,
+                    "token_id": None,
+                }
+                for token, logprob in sorted_tokens
+            ]
+
+            return {
+                "token": top_token,
+                "bytes": None,
+                "logprob": top_logprob,
+                "token_id": None,
+                "text_offset": None,
+                "top_logprobs": top_logprobs_list,
+            }
+
+        try:
+            return [serialize_position(pos) for pos in logprobs_obj]
+        except Exception:
+            # Fall back: if it's already JSON-ready, return as-is
             return logprobs_obj  # type: ignore[return-value]
 
     def select_action(

@@ -53,7 +53,9 @@ def elicit_policy(
                     # Query agent for preferred action at this position
                     if agent.__class__.__name__ == "LLMAgent":
                         action, metadata = agent.select_action(
-                            env, return_logprobs=True, top_logprobs=top_logprobs
+                            env,
+                            return_logprobs=True if top_logprobs > 0 else False,
+                            top_logprobs=top_logprobs,
                         )
                     else:
                         action, metadata = agent.select_action(env)

@@ -28,6 +28,7 @@ dependencies = [
     "ipykernel>=7.0.1",
     "jupyter>=1.1.1",
     "seaborn>=0.13.2",
+    "together>=1.5.31",
     "tyro>=0.10.0a6",
     "transformers>=4.57.3",
 ]
