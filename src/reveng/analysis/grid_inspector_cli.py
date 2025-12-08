@@ -3,13 +3,16 @@
 
 Usage:
     # Search for grids with high cross-entropy
-    uv run src/reveng/analysis/grid_inspector_cli search --dataset path/to/grids.pkl --metadata-dir path/to/metadata
+    uv run src/reveng/analysis/grid_inspector_cli.py search --dataset path/to/grids.pkl --metadata-dir path/to/metadata
+
+    # Find grids with high branching factor (many optimal actions per cell)
+    uv run src/reveng/analysis/grid_inspector_cli.py find-branching --dataset path/to/grids.pkl
 
     # Visualize a specific grid
-    uv run src/reveng/analysis/grid_inspector_cli visualize --grid-id grid_size5_complexity0.30_0001 ...
+    uv run src/reveng/analysis/grid_inspector_cli.py visualize --grid-id grid_size5_complexity0.30_0001 ...
 
     # Visualize a random grid
-    uv run src/reveng/analysis/grid_inspector_cli visualize --random ...
+    uv run src/reveng/analysis/grid_inspector_cli.py visualize --random ...
 """
 
 import argparse
@@ -571,6 +574,167 @@ def cmd_search(args: argparse.Namespace) -> None:
         print(f"\nSaved full rankings to: {output_path}")
 
 
+def cmd_find_branching(args: argparse.Namespace) -> None:
+    """Find grids with cells that have high numbers of optimal actions."""
+    print("=" * 60)
+    print("FIND GRIDS WITH HIGH BRANCHING FACTOR")
+    print("=" * 60)
+
+    # Load environments
+    print(f"\n1. Loading environments from: {args.dataset}")
+    grids_dataset = load_environments(args.dataset)
+    print(f"   Loaded {len(grids_dataset)} environments")
+
+    min_branching = args.min_branching
+
+    # Track results
+    # grid_id -> {max_branching, cells_with_target, total_cells, cell_positions}
+    results: list[dict[str, Any]] = []
+
+    # Global stats
+    global_branching_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+    grids_with_branching: dict[int, list[str]] = {1: [], 2: [], 3: [], 4: []}
+
+    print(
+        f"\n2. Scanning {len(grids_dataset)} grids for cells with >= {min_branching} optimal actions..."
+    )
+
+    for grid_id in tqdm(grids_dataset.keys(), desc="Analyzing grids"):
+        env = grids_dataset[grid_id]
+        optimal_actions_grid = compute_optimal_actions(env)
+
+        # Count cells by branching factor
+        branching_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+        high_branching_cells: list[tuple[int, int, int]] = []  # (x, y, num_optimal)
+        max_branching = 0
+
+        height = len(optimal_actions_grid)
+        width = len(optimal_actions_grid[0]) if height > 0 else 0
+
+        for y in range(height):
+            for x in range(width):
+                num_optimal = len(optimal_actions_grid[y][x])
+                if num_optimal > 0:
+                    if num_optimal in branching_counts:
+                        branching_counts[num_optimal] += 1
+                        global_branching_counts[num_optimal] += 1
+                    max_branching = max(max_branching, num_optimal)
+
+                    if num_optimal >= min_branching:
+                        high_branching_cells.append((x, y, num_optimal))
+
+        # Track which grids have each branching level
+        for b in [1, 2, 3, 4]:
+            if branching_counts[b] > 0:
+                grids_with_branching[b].append(grid_id)
+
+        # Only include grids that meet the threshold
+        if high_branching_cells:
+            results.append(
+                {
+                    "grid_id": grid_id,
+                    "max_branching": max_branching,
+                    "num_high_branching_cells": len(high_branching_cells),
+                    "branching_counts": branching_counts,
+                    "high_branching_cells": high_branching_cells,
+                }
+            )
+
+    # Sort by max branching (descending), then by number of high-branching cells
+    results.sort(
+        key=lambda x: (x["max_branching"], x["num_high_branching_cells"]), reverse=True
+    )
+
+    # Print global statistics
+    print("\n" + "=" * 60)
+    print("GLOBAL BRANCHING STATISTICS")
+    print("=" * 60)
+    total_cells = sum(global_branching_counts.values())
+    print(f"Total cells analyzed: {total_cells}")
+    for b in [1, 2, 3, 4]:
+        count = global_branching_counts[b]
+        pct = 100 * count / total_cells if total_cells > 0 else 0
+        num_grids = len(grids_with_branching[b])
+        print(
+            f"  {b} optimal action(s): {count:6d} cells ({pct:5.2f}%) in {num_grids} grids"
+        )
+
+    # Print results
+    print("\n" + "=" * 60)
+    print(f"GRIDS WITH CELLS HAVING >= {min_branching} OPTIMAL ACTIONS")
+    print("=" * 60)
+
+    if not results:
+        print(f"\nNo grids found with cells having >= {min_branching} optimal actions.")
+    else:
+        print(f"\nFound {len(results)} grids with high-branching cells:\n")
+
+        for i, r in enumerate(results[: args.top_k], 1):
+            grid_id = r["grid_id"]
+            max_b = r["max_branching"]
+            num_cells = r["num_high_branching_cells"]
+            print(f"{i:3d}. {grid_id}")
+            print(
+                f"      Max branching: {max_b}, Cells with >= {min_branching} optimal: {num_cells}"
+            )
+
+            # Show cell positions if verbose
+            if args.verbose:
+                cells = r["high_branching_cells"][:10]  # Limit to first 10
+                positions = ", ".join(f"({x},{y}):{n}" for x, y, n in cells)
+                if len(r["high_branching_cells"]) > 10:
+                    positions += f" ... and {len(r['high_branching_cells']) - 10} more"
+                print(f"      Cells: {positions}")
+            print()
+
+    # Save to file if requested
+    if args.output:
+        output_path = Path(args.output)
+        with open(output_path, "w") as f:
+            f.write(
+                "rank,grid_id,max_branching,num_high_branching_cells,cell_positions\n"
+            )
+            for rank, r in enumerate(results, 1):
+                cells_str = ";".join(
+                    f"{x}:{y}:{n}" for x, y, n in r["high_branching_cells"]
+                )
+                f.write(
+                    f"{rank},{r['grid_id']},{r['max_branching']},{r['num_high_branching_cells']},{cells_str}\n"
+                )
+        print(f"\nSaved full results to: {output_path}")
+
+    # Special check for 4-way branching
+    if global_branching_counts[4] > 0:
+        print("\n" + "=" * 60)
+        print("🎉 FOUND CELLS WITH 4 OPTIMAL ACTIONS! 🎉")
+        print("=" * 60)
+        grids_4 = grids_with_branching[4]
+        print(
+            f"Found {global_branching_counts[4]} cells with 4 optimal actions in {len(grids_4)} grids:\n"
+        )
+
+        # Show details for each grid with 4-optimal cells
+        for gid in grids_4[:20]:
+            # Find the result entry for this grid
+            grid_result = next((r for r in results if r["grid_id"] == gid), None)
+            if grid_result:
+                cells_4 = [
+                    (x, y) for x, y, n in grid_result["high_branching_cells"] if n == 4
+                ]
+                positions = ", ".join(f"({x},{y})" for x, y in cells_4[:10])
+                if len(cells_4) > 10:
+                    positions += f" ... +{len(cells_4) - 10} more"
+                print(f"  {gid}")
+                print(f"    Cell positions: {positions}")
+
+        if len(grids_4) > 20:
+            print(f"\n  ... and {len(grids_4) - 20} more grids")
+    else:
+        print("\n" + "-" * 60)
+        print("No cells with 4 optimal actions found in any grid.")
+        print("-" * 60)
+
+
 def cmd_visualize(args: argparse.Namespace) -> None:
     """Visualize a grid showing optimal and LLM distributions."""
     print("=" * 60)
@@ -660,18 +824,23 @@ def main() -> None:
         epilog="""
 Examples:
   # Search for grids with high cross-entropy
-  uv run src/reveng/analysis/grid_inspector_cli search \\
+  uv run src/reveng/analysis/grid_inspector_cli.py search \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
       --metadata-dir /path/to/metadata
 
+  # Find grids with cells having 3+ optimal actions
+  uv run src/reveng/analysis/grid_inspector_cli.py find-branching \\
+      --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
+      --min-branching 3 --verbose
+
   # Visualize a specific grid
-  uv run src/reveng/analysis/grid_inspector_cli visualize \\
+  uv run src/reveng/analysis/grid_inspector_cli.py visualize \\
       --grid-id grid_size5_complexity0.30_0001 \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
       --metadata-dir /path/to/metadata
 
   # Visualize a random grid
-  uv run src/reveng/analysis/grid_inspector_cli visualize --random \\
+  uv run src/reveng/analysis/grid_inspector_cli.py visualize --random \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
       --metadata-dir /path/to/metadata
         """,
@@ -713,6 +882,41 @@ Examples:
         "--output",
         type=str,
         help="Optional CSV file to save full rankings",
+    )
+
+    # Find-branching subcommand
+    branching_parser = subparsers.add_parser(
+        "find-branching",
+        help="Find grids with cells having many optimal actions (high branching factor)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    branching_parser.add_argument(
+        "--dataset",
+        type=str,
+        default="src/reveng/experiments/datasets/baseline_grids.pkl",
+        help="Path to the grids pickle file",
+    )
+    branching_parser.add_argument(
+        "--min-branching",
+        type=int,
+        default=3,
+        help="Minimum number of optimal actions to search for",
+    )
+    branching_parser.add_argument(
+        "--top-k",
+        type=int,
+        default=20,
+        help="Number of top grids to display",
+    )
+    branching_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show cell positions for high-branching cells",
+    )
+    branching_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional CSV file to save results",
     )
 
     # Visualize subcommand
@@ -770,6 +974,8 @@ Examples:
 
     if args.command == "search":
         cmd_search(args)
+    elif args.command == "find-branching":
+        cmd_find_branching(args)
     elif args.command == "visualize":
         cmd_visualize(args)
 
