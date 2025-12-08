@@ -365,7 +365,6 @@ def cross_entropy(
 
     weight = 1.0 / len(optimal_actions)
     ce = 0.0
-    print(dist)
     for action in optimal_actions:
         model_prob = max(dist.get(action, 0.0), eps)
         ce -= weight * math.log2(model_prob)
