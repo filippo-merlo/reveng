@@ -2,12 +2,7 @@
 
 import argparse
 import gc
-import heapq
-import json
-import math
-import pickle
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -17,75 +12,24 @@ import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 
+from reveng.analysis.analysis_utils import (
+    CellMetrics,
+    GridMetadata,
+    compute_optimal_actions,
+    compute_optimal_mass,
+    cross_entropy,
+    discover_metadata_files,
+    distribution_from_logprobs,
+    load_environments,
+    load_metadata_batch,
+    optimal_entropy,
+    sanitize_label,
+    shannon_entropy,
+)
+
 # =============================================================================
-# Constants
+# Data Classes (specific to this analysis)
 # =============================================================================
-
-ACTION_NAME_TO_ID = {"LEFT": 0, "RIGHT": 1, "UP": 2, "DOWN": 3}
-ACTION_ID_TO_NAME = {v: k for k, v in ACTION_NAME_TO_ID.items()}
-ACTION_NAMES_UPPER = set(ACTION_NAME_TO_ID.keys())
-LOGPROB_EPS = 1e-12
-
-# Type aliases for clarity
-ActionID = int
-ActionDist = dict[ActionID, float]
-OptimalActionSet = set[ActionID]
-GridCoord = tuple[int, int]
-
-
-# =============================================================================
-# Data Classes
-# =============================================================================
-
-
-@dataclass
-class GridMetadata:
-    """Metadata for a single grid instance."""
-
-    grid_size: int
-    complexity: float
-    instance_id: int
-    policy_metadata: list[list[dict[str, Any]]]
-
-
-@dataclass
-class CellMetrics:
-    """Computed metrics for a single grid cell."""
-
-    grid_id: str
-    grid_size: int
-    complexity: float
-    instance_id: int
-    x: int
-    y: int
-    llm_action: int
-    num_optimal_actions: int
-    entropy_bits: float
-    optimal_entropy_bits: float
-    cross_entropy_bits: Optional[float]
-    optimal_mass: float
-    is_action_optimal: int
-    action_probs: dict[str, float]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for DataFrame construction."""
-        base = {
-            "grid_id": self.grid_id,
-            "grid_size": self.grid_size,
-            "complexity": self.complexity,
-            "instance_id": self.instance_id,
-            "x": self.x,
-            "y": self.y,
-            "llm_action": self.llm_action,
-            "num_optimal_actions": self.num_optimal_actions,
-            "entropy_bits": self.entropy_bits,
-            "optimal_entropy_bits": self.optimal_entropy_bits,
-            "cross_entropy_bits": self.cross_entropy_bits,
-            "optimal_mass": self.optimal_mass,
-            "is_action_optimal": self.is_action_optimal,
-        }
-        base.update({f"p_{name}": prob for name, prob in self.action_probs.items()})
-        return base
 
 
 @dataclass
@@ -100,398 +44,21 @@ class AnalysisResults:
 
 
 # =============================================================================
-# File Parsing Utilities
+# Batching Utilities
 # =============================================================================
-
-
-def sanitize_label(value: str) -> str:
-    if not value:
-        return "model"
-    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)
-
-
-def parse_filename(filepath: Path) -> tuple[int, float, int]:
-    """Extract grid_size, complexity, and instance_id from filename.
-
-    Expected format: grid_size{N}_complexity{X.XX}_{NNNN}_metadata.json
-    """
-    name = filepath.stem
-    parts = name.split("_")
-    try:
-        grid_size = int(parts[1].replace("size", ""))
-        complexity = float(parts[2].replace("complexity", ""))
-        instance_id = int(parts[3])
-        return grid_size, complexity, instance_id
-    except (IndexError, ValueError) as e:
-        raise ValueError(f"Invalid filename format: {filepath.name}") from e
-
-
-# =============================================================================
-# Optimal Actions Computation
-# =============================================================================
-
-
-def compute_optimal_actions(env: Any) -> list[list[OptimalActionSet]]:
-    base_env = getattr(env, "unwrapped", env)
-    grid = base_env.grid
-    goal: GridCoord = tuple(base_env.goal_pos)
-    width, height = grid.width, grid.height
-
-    def is_passable(x: int, y: int) -> bool:
-        """Check if a position is within bounds and not blocked."""
-        if x < 0 or y < 0 or x >= width or y >= height:
-            return False
-        cell = grid.get(x, y)
-        return (cell is None) or (getattr(cell, "can_overlap", lambda: False)())
-
-    # (dx, dy, action_id): LEFT, RIGHT, UP, DOWN
-    neighbors = [(-1, 0, 0), (1, 0, 1), (0, -1, 2), (0, 1, 3)]
-
-    # Backward Dijkstra from goal
-    distances: dict[GridCoord, float] = {goal: 0}
-    heap: list[tuple[float, GridCoord]] = [(0, goal)]
-
-    while heap:
-        dist, (x, y) = heapq.heappop(heap)
-        if dist > distances.get((x, y), float("inf")):
-            continue
-
-        for dx, dy, _ in neighbors:
-            nx, ny = x + dx, y + dy
-            if is_passable(nx, ny):
-                new_dist = dist + 1
-                if new_dist < distances.get((nx, ny), float("inf")):
-                    distances[(nx, ny)] = new_dist
-                    heapq.heappush(heap, (new_dist, (nx, ny)))
-
-    # Determine optimal actions for each cell
-    optimal_actions: list[list[OptimalActionSet]] = [
-        [set() for _ in range(width)] for _ in range(height)
-    ]
-
-    for y in range(height):
-        for x in range(width):
-            if not is_passable(x, y):
-                continue
-
-            current_dist = distances.get((x, y), float("inf"))
-            if current_dist == float("inf"):
-                continue
-
-            for dx, dy, action in neighbors:
-                nx, ny = x + dx, y + dy
-                if is_passable(nx, ny):
-                    neighbor_dist = distances.get((nx, ny), float("inf"))
-                    if neighbor_dist == current_dist - 1:
-                        optimal_actions[y][x].add(action)
-
-    # Goal cell has no optimal actions (already at goal)
-    gx, gy = goal
-    optimal_actions[gy][gx] = set()
-
-    return optimal_actions
-
-
-# =============================================================================
-# Logprob Parsing (More Robust Version)
-# =============================================================================
-
-
-def normalize_action_token(token: Optional[str]) -> str:
-    if token is None:
-        return ""
-    # Remove quotes, whitespace, and convert to uppercase
-    return token.strip().strip('"').strip("'").upper()
-
-
-def is_action_token(token: str) -> bool:
-    """Check if a token is a valid action name.
-
-    Args:
-        token: Token string to check
-
-    Returns:
-        True if token is a valid action (LEFT/RIGHT/UP/DOWN)
-    """
-    normalized = normalize_action_token(token)
-    return normalized in ACTION_NAMES_UPPER
-
-
-def find_action_token_entry(logprobs: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    if not logprobs:
-        return None
-
-    n = len(logprobs)
-
-    # Strategy 1: Structured search for "action": "<VALUE>" pattern
-    for i, entry in enumerate(logprobs):
-        token = entry.get("token", "")
-
-        # Check if this is the "action" key in JSON
-        if "action" not in token.lower():
-            continue
-
-        # Look for colon after the "action" key
-        colon_idx = None
-        for j in range(i + 1, min(i + 5, n)):
-            if ":" in logprobs[j].get("token", ""):
-                colon_idx = j
-                break
-
-        if colon_idx is None:
-            continue
-
-        # Search for action value after colon
-        for k in range(colon_idx + 1, min(colon_idx + 5, n)):
-            candidate_token = logprobs[k].get("token", "")
-
-            # Skip whitespace and quote tokens
-            if candidate_token.strip() in ("", '"', "'"):
-                continue
-
-            # Check if this is a valid action
-            if is_action_token(candidate_token):
-                return logprobs[k]
-
-            # Stop if we hit end of JSON object
-            if "}" in candidate_token:
-                break
-
-    # Strategy 2: Fallback - find any high-confidence standalone action token
-    # This handles cases where JSON structure differs from expected
-    for entry in logprobs:
-        token = entry.get("token", "")
-        if is_action_token(token):
-            logprob = entry.get("logprob")
-            # Only accept high-confidence actions (>36% probability)
-            if logprob is not None and logprob > -1.0:
-                return entry
-
-    return None
-
-
-def distribution_from_logprobs(
-    logprobs: Optional[list[dict[str, Any]]],
-) -> Optional[ActionDist]:
-    if not logprobs:
-        return None
-
-    token_entry = find_action_token_entry(logprobs)
-    if not token_entry:
-        return None
-
-    # Collect logprobs for each action
-    entries: dict[ActionID, float] = {}
-
-    def register_action(token_value: Optional[str], logprob: Optional[float]) -> None:
-        """Register an action and its logprob."""
-        action = normalize_action_token(token_value)
-        if action in ACTION_NAME_TO_ID and logprob is not None:
-            action_id = ACTION_NAME_TO_ID[action]
-            # Keep highest logprob if we see the same action multiple times
-            entries[action_id] = max(entries.get(action_id, -math.inf), logprob)
-
-    # Register the chosen token
-    register_action(token_entry.get("token"), token_entry.get("logprob"))
-
-    # Register alternatives from top_logprobs
-    for candidate in token_entry.get("top_logprobs") or []:
-        register_action(candidate.get("token"), candidate.get("logprob"))
-
-    if not entries:
-        return None
-
-    # Convert logprobs to probabilities using numerically stable softmax
-    max_logprob = max(entries.values())
-    probs = {aid: math.exp(lp - max_logprob) for aid, lp in entries.items()}
-
-    total = sum(probs.values())
-    if total <= 0:
-        return None
-
-    # Normalize to sum to 1.0 and ensure all actions have entries (0 for unseen)
-    return {aid: probs.get(aid, 0.0) / total for aid in ACTION_ID_TO_NAME}
-
-
-# =============================================================================
-# Entropy and Information Theory Metrics
-# =============================================================================
-
-
-def shannon_entropy(dist: ActionDist) -> float:
-    """Compute Shannon entropy of a probability distribution.
-
-    H(X) = -sum_i p_i * log2(p_i)
-    """
-    return -sum(p * math.log2(p) for p in dist.values() if p > 0)
-
-
-def cross_entropy(
-    optimal_actions: OptimalActionSet, dist: ActionDist, eps: float = LOGPROB_EPS
-) -> Optional[float]:
-    """Compute cross-entropy between uniform optimal and model distributions.
-
-    H(p_opt, q_model) = -sum_a p_opt(a) * log2(q_model(a))
-
-    Where p_opt is uniform over the optimal action set.
-    """
-    if not optimal_actions:
-        return None
-
-    weight = 1.0 / len(optimal_actions)
-    ce = 0.0
-    for action in optimal_actions:
-        model_prob = max(dist.get(action, 0.0), eps)
-        ce -= weight * math.log2(model_prob)
-    return ce
-
-
-def compute_optimal_mass(optimal_actions: OptimalActionSet, dist: ActionDist) -> float:
-    return sum(dist.get(action, 0.0) for action in optimal_actions)
-
-
-def optimal_entropy(num_optimal_actions: int) -> float:
-    """Entropy of uniform distribution over optimal actions: H = log2(k)."""
-    if num_optimal_actions <= 0:
-        return 0.0
-    return math.log2(num_optimal_actions)
-
-
-# =============================================================================
-# Data Loading and Batching
-# =============================================================================
-
-
-def load_environments(dataset_path: str) -> dict[str, Any]:
-    with open(dataset_path, "rb") as f:
-        return pickle.load(f)
-
-
-def discover_metadata_files(metadata_dir: Path) -> list[Path]:
-    return sorted(metadata_dir.glob("*_metadata.json"))
-
-
-def _load_single_metadata(fpath: Path) -> Optional[tuple[str, GridMetadata]]:
-    try:
-        grid_size, complexity, instance_id = parse_filename(fpath)
-        key = f"grid_size{grid_size}_complexity{complexity:.2f}_{instance_id:04d}"
-
-        with open(fpath, "r") as f:
-            policy_metadata = json.load(f)
-
-        return key, GridMetadata(
-            grid_size=grid_size,
-            complexity=complexity,
-            instance_id=instance_id,
-            policy_metadata=policy_metadata,
-        )
-    except (ValueError, json.JSONDecodeError) as e:
-        print(f"Warning: Skipping invalid file {fpath.name}: {e}")
-        return None
-
-
-def load_metadata_batch(
-    metadata_files: list[Path], max_workers: int = 8, show_progress: bool = False
-) -> dict[str, GridMetadata]:
-    metadata_dict: dict[str, GridMetadata] = {}
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_load_single_metadata, fpath): fpath
-            for fpath in metadata_files
-        }
-        completed = as_completed(futures)
-        if show_progress:
-            completed = tqdm(
-                completed, total=len(futures), desc="Loading metadata", leave=False
-            )
-        for future in completed:
-            result = future.result()
-            if result is not None:
-                key, metadata = result
-                metadata_dict[key] = metadata
-
-    return metadata_dict
 
 
 def batch_metadata_files(
     metadata_files: list[Path], batch_size: int
 ) -> Iterator[list[Path]]:
+    """Yield batches of metadata files."""
     for i in range(0, len(metadata_files), batch_size):
         yield metadata_files[i : i + batch_size]
 
 
 # =============================================================================
-# Core Analysis - Cell and Grid Processing
+# Core Analysis - Grid Processing
 # =============================================================================
-
-
-def process_cell(
-    cell: Any,
-    optimal_set: OptimalActionSet,
-    grid_id: str,
-    metadata: GridMetadata,
-    x: int,
-    y: int,
-) -> Optional[CellMetrics]:
-    if not isinstance(cell, dict):
-        return None
-
-    if not optimal_set:
-        return None
-
-    # Extract action distribution from logprobs
-    dist = distribution_from_logprobs(cell.get("logprobs"))
-    if dist is None:
-        return None
-
-    num_optimal = len(optimal_set)
-    entropy_bits = shannon_entropy(dist)
-    optimal_entropy_bits = optimal_entropy(num_optimal)
-    cross_entropy_bits = cross_entropy(optimal_set, dist)
-    optimal_mass_val = compute_optimal_mass(optimal_set, dist)
-    llm_action = cell.get("llm_response", -1)
-
-    action_probs = {
-        ACTION_ID_TO_NAME[aid].lower(): dist.get(aid, 0.0) for aid in ACTION_ID_TO_NAME
-    }
-
-    return CellMetrics(
-        grid_id=grid_id,
-        grid_size=metadata.grid_size,
-        complexity=metadata.complexity,
-        instance_id=metadata.instance_id,
-        x=x,
-        y=y,
-        llm_action=llm_action,
-        num_optimal_actions=num_optimal,
-        entropy_bits=entropy_bits,
-        optimal_entropy_bits=optimal_entropy_bits,
-        cross_entropy_bits=cross_entropy_bits,
-        optimal_mass=optimal_mass_val,
-        is_action_optimal=int(llm_action in optimal_set),
-        action_probs=action_probs,
-    )
-
-
-def process_grid(grid_id: str, env: Any, metadata: GridMetadata) -> list[CellMetrics]:
-    results: list[CellMetrics] = []
-    optimal_actions = compute_optimal_actions(env)
-
-    for y, row in enumerate(metadata.policy_metadata):
-        for x, cell in enumerate(row):
-            cell_result = process_cell(
-                cell=cell,
-                optimal_set=optimal_actions[y][x],
-                grid_id=grid_id,
-                metadata=metadata,
-                x=x,
-                y=y,
-            )
-            if cell_result:
-                results.append(cell_result)
-
-    return results
 
 
 def process_all_grids(
@@ -499,6 +66,7 @@ def process_all_grids(
     metadata_files: list[Path],
     batch_size: int,
 ) -> list[dict[str, Any]]:
+    """Process all grids in batches and collect cell metrics."""
     dataset_keys = set(grids_dataset.keys())
     total_batches = (len(metadata_files) + batch_size - 1) // batch_size
     all_metrics: list[dict[str, Any]] = []
@@ -520,7 +88,7 @@ def process_all_grids(
             leave=False,
         ):
             env = grids_dataset[key]
-            grid_metrics = process_grid(key, env, metadata_batch[key])
+            grid_metrics = _process_grid_for_analysis(key, env, metadata_batch[key])
             all_metrics.extend([m.to_dict() for m in grid_metrics])
 
         # Free memory after each batch
@@ -530,12 +98,74 @@ def process_all_grids(
     return all_metrics
 
 
+def _process_grid_for_analysis(
+    grid_id: str, env: Any, metadata: GridMetadata
+) -> list[CellMetrics]:
+    """Process all cells in a grid and return their metrics.
+
+    This is a local wrapper that uses the shared utilities.
+    """
+    from reveng.analysis.analysis_utils import (
+        ACTION_ID_TO_NAME,
+    )
+
+    results: list[CellMetrics] = []
+    optimal_actions = compute_optimal_actions(env)
+
+    for y, row in enumerate(metadata.policy_metadata):
+        for x, cell in enumerate(row):
+            if not isinstance(cell, dict):
+                continue
+
+            optimal_set = optimal_actions[y][x]
+            if not optimal_set:
+                continue
+
+            dist = distribution_from_logprobs(cell.get("logprobs"))
+            if dist is None:
+                continue
+
+            num_optimal = len(optimal_set)
+            entropy_bits = shannon_entropy(dist)
+            optimal_entropy_bits = optimal_entropy(num_optimal)
+            cross_entropy_bits = cross_entropy(optimal_set, dist)
+            optimal_mass_val = compute_optimal_mass(optimal_set, dist)
+            llm_action = cell.get("llm_response", -1)
+
+            action_probs = {
+                ACTION_ID_TO_NAME[aid].lower(): dist.get(aid, 0.0)
+                for aid in ACTION_ID_TO_NAME
+            }
+
+            results.append(
+                CellMetrics(
+                    grid_id=grid_id,
+                    grid_size=metadata.grid_size,
+                    complexity=metadata.complexity,
+                    instance_id=metadata.instance_id,
+                    x=x,
+                    y=y,
+                    llm_action=llm_action,
+                    num_optimal_actions=num_optimal,
+                    entropy_bits=entropy_bits,
+                    optimal_entropy_bits=optimal_entropy_bits,
+                    cross_entropy_bits=cross_entropy_bits,
+                    optimal_mass=optimal_mass_val,
+                    is_action_optimal=int(llm_action in optimal_set),
+                    action_probs=action_probs,
+                )
+            )
+
+    return results
+
+
 # =============================================================================
 # Statistical Analysis
 # =============================================================================
 
 
 def compute_summary_statistics(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute summary statistics grouped by number of optimal actions."""
     return (
         df.groupby("num_optimal_actions")
         .agg(
@@ -553,6 +183,7 @@ def compute_summary_statistics(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_correlations(df: pd.DataFrame) -> dict[str, float]:
+    """Compute correlations between number of optimal actions and metrics."""
     return {
         "entropy": df["num_optimal_actions"].corr(df["entropy_bits"]),
         "cross_entropy": df["num_optimal_actions"].corr(df["cross_entropy_bits"]),
@@ -566,6 +197,7 @@ def compute_correlations(df: pd.DataFrame) -> dict[str, float]:
 
 
 def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
+    """Plot heatmaps of entropy and cross-entropy by grid size and complexity."""
     grouped = (
         df.groupby(["grid_size", "complexity"])
         .agg(
@@ -622,6 +254,7 @@ def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
 
 
 def plot_trends(df: pd.DataFrame, output_path: Path) -> None:
+    """Plot trend lines for entropy metrics vs complexity and grid size."""
     grouped = (
         df.groupby(["grid_size", "complexity"])
         .agg(
@@ -690,6 +323,7 @@ def plot_trends(df: pd.DataFrame, output_path: Path) -> None:
 
 
 def generate_visualizations(results: AnalysisResults) -> tuple[Path, Path]:
+    """Generate all visualizations for the analysis results."""
     model_dir = results.output_dir / results.model_tag
     heatmap_path = model_dir / f"uncertainty_heatmaps_{results.model_tag}.png"
     trends_path = model_dir / f"uncertainty_trends_{results.model_tag}.png"
@@ -708,6 +342,7 @@ def generate_visualizations(results: AnalysisResults) -> tuple[Path, Path]:
 def save_csv_outputs(
     df: pd.DataFrame, summary: pd.DataFrame, output_dir: Path, model_tag: str
 ) -> tuple[Path, Path]:
+    """Save analysis results to CSV files."""
     states_path = output_dir / f"uncertainty_states_{model_tag}.csv"
     df.to_csv(states_path, index=False)
 
@@ -723,6 +358,7 @@ def save_findings(
     output_dir: Path,
     model_tag: str,
 ) -> Path:
+    """Save key findings to a text file."""
     lines = [
         "KEY FINDINGS",
         f"Model tag: {model_tag}",
@@ -751,6 +387,7 @@ def save_findings(
 def print_summary(
     correlations: dict[str, float], summary: pd.DataFrame, model_tag: str
 ) -> None:
+    """Print summary findings to console."""
     print("\n5. KEY FINDINGS:")
     print(f"   Model: {model_tag}")
     print(f"   - Correlation (#optimal vs entropy): {correlations['entropy']:.4f}")
