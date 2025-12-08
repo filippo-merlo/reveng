@@ -20,6 +20,7 @@ from reveng.analysis.analysis_utils import (
     cross_entropy,
     discover_metadata_files,
     distribution_from_logprobs,
+    jensen_shannon_divergence,
     load_environments,
     load_metadata_batch,
     optimal_entropy,
@@ -41,6 +42,7 @@ class AnalysisResults:
     correlations: dict[str, float]
     model_tag: str
     output_dir: Path
+    metric: str = "ce"  # 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
 
 
 # =============================================================================
@@ -129,6 +131,7 @@ def _process_grid_for_analysis(
             entropy_bits = shannon_entropy(dist)
             optimal_entropy_bits = optimal_entropy(num_optimal)
             cross_entropy_bits = cross_entropy(optimal_set, dist)
+            jsd_value = jensen_shannon_divergence(optimal_set, dist)
             optimal_mass_val = compute_optimal_mass(optimal_set, dist)
             llm_action = cell.get("llm_response", -1)
 
@@ -150,6 +153,7 @@ def _process_grid_for_analysis(
                     entropy_bits=entropy_bits,
                     optimal_entropy_bits=optimal_entropy_bits,
                     cross_entropy_bits=cross_entropy_bits,
+                    jsd=jsd_value,
                     optimal_mass=optimal_mass_val,
                     is_action_optimal=int(llm_action in optimal_set),
                     action_probs=action_probs,
@@ -164,8 +168,15 @@ def _process_grid_for_analysis(
 # =============================================================================
 
 
-def compute_summary_statistics(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute summary statistics grouped by number of optimal actions."""
+def compute_summary_statistics(df: pd.DataFrame, metric: str = "ce") -> pd.DataFrame:
+    """Compute summary statistics grouped by number of optimal actions.
+
+    Args:
+        df: DataFrame with cell metrics
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+
     return (
         df.groupby("num_optimal_actions")
         .agg(
@@ -174,19 +185,26 @@ def compute_summary_statistics(df: pd.DataFrame) -> pd.DataFrame:
             std_entropy=("entropy_bits", "std"),
             mean_optimal_entropy=("optimal_entropy_bits", "mean"),
             std_optimal_entropy=("optimal_entropy_bits", "std"),
-            mean_cross_entropy=("cross_entropy_bits", "mean"),
-            std_cross_entropy=("cross_entropy_bits", "std"),
+            mean_divergence=(divergence_col, "mean"),
+            std_divergence=(divergence_col, "std"),
             mean_optimal_mass=("optimal_mass", "mean"),
         )
         .reset_index()
     )
 
 
-def compute_correlations(df: pd.DataFrame) -> dict[str, float]:
-    """Compute correlations between number of optimal actions and metrics."""
+def compute_correlations(df: pd.DataFrame, metric: str = "ce") -> dict[str, float]:
+    """Compute correlations between number of optimal actions and metrics.
+
+    Args:
+        df: DataFrame with cell metrics
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+
     return {
         "entropy": df["num_optimal_actions"].corr(df["entropy_bits"]),
-        "cross_entropy": df["num_optimal_actions"].corr(df["cross_entropy_bits"]),
+        "divergence": df["num_optimal_actions"].corr(df[divergence_col]),
         "optimal_mass": df["num_optimal_actions"].corr(df["optimal_mass"]),
     }
 
@@ -196,13 +214,23 @@ def compute_correlations(df: pd.DataFrame) -> dict[str, float]:
 # =============================================================================
 
 
-def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
-    """Plot heatmaps of entropy and cross-entropy by grid size and complexity."""
+def plot_heatmaps(df: pd.DataFrame, output_path: Path, metric: str = "ce") -> None:
+    """Plot heatmaps of entropy and divergence by grid size and complexity.
+
+    Args:
+        df: DataFrame with cell metrics
+        output_path: Path to save the figure
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+    metric_label = "Mean Cross-Entropy (bits)" if metric == "ce" else "Mean JSD"
+
     grouped = (
         df.groupby(["grid_size", "complexity"])
         .agg(
             mean_entropy=("entropy_bits", "mean"),
-            mean_cross_entropy=("cross_entropy_bits", "mean"),
+            mean_divergence=(divergence_col, "mean"),
         )
         .reset_index()
     )
@@ -210,8 +238,8 @@ def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
     pivot_entropy = grouped.pivot(
         index="complexity", columns="grid_size", values="mean_entropy"
     )
-    pivot_cross = grouped.pivot(
-        index="complexity", columns="grid_size", values="mean_cross_entropy"
+    pivot_divergence = grouped.pivot(
+        index="complexity", columns="grid_size", values="mean_divergence"
     )
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -233,15 +261,15 @@ def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
     axes[0].set_ylabel("Complexity", fontsize=12)
 
     sns.heatmap(
-        pivot_cross,
+        pivot_divergence,
         annot=True,
         fmt=".3f",
         cmap="Reds",
         ax=axes[1],
-        cbar_kws={"label": "Mean Cross-Entropy (bits)"},
+        cbar_kws={"label": metric_label},
     )
     axes[1].set_title(
-        "Mean Cross-Entropy by Grid Size and Complexity",
+        f"Mean {metric_name} by Grid Size and Complexity",
         fontsize=14,
         fontweight="bold",
     )
@@ -253,14 +281,24 @@ def plot_heatmaps(df: pd.DataFrame, output_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_trends(df: pd.DataFrame, output_path: Path) -> None:
-    """Plot trend lines for entropy metrics vs complexity and grid size."""
+def plot_trends(df: pd.DataFrame, output_path: Path, metric: str = "ce") -> None:
+    """Plot trend lines for entropy metrics vs complexity and grid size.
+
+    Args:
+        df: DataFrame with cell metrics
+        output_path: Path to save the figure
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+    metric_ylabel = "Mean Cross-Entropy (bits)" if metric == "ce" else "Mean JSD"
+
     grouped = (
         df.groupby(["grid_size", "complexity"])
         .agg(
             mean_entropy=("entropy_bits", "mean"),
             mean_optimal_entropy=("optimal_entropy_bits", "mean"),
-            mean_cross_entropy=("cross_entropy_bits", "mean"),
+            mean_divergence=(divergence_col, "mean"),
         )
         .reset_index()
     )
@@ -301,19 +339,19 @@ def plot_trends(df: pd.DataFrame, output_path: Path) -> None:
     axes[1].legend(fontsize=9)
     axes[1].grid(True, alpha=0.3)
 
-    # Cross-Entropy vs Grid Size by Complexity
+    # Divergence vs Grid Size by Complexity
     for complexity in complexities:
         subset = grouped[grouped["complexity"] == complexity]
         axes[2].plot(
             subset["grid_size"],
-            subset["mean_cross_entropy"],
+            subset["mean_divergence"],
             marker="o",
             linewidth=2,
             label=f"Complexity {complexity:.2f}",
         )
-    axes[2].set_title("Cross-Entropy vs Grid Size", fontsize=14, fontweight="bold")
+    axes[2].set_title(f"{metric_name} vs Grid Size", fontsize=14, fontweight="bold")
     axes[2].set_xlabel("Grid Size", fontsize=12)
-    axes[2].set_ylabel("Mean Cross-Entropy (bits)", fontsize=12)
+    axes[2].set_ylabel(metric_ylabel, fontsize=12)
     axes[2].legend(fontsize=9, ncol=2)
     axes[2].grid(True, alpha=0.3)
 
@@ -325,11 +363,16 @@ def plot_trends(df: pd.DataFrame, output_path: Path) -> None:
 def generate_visualizations(results: AnalysisResults) -> tuple[Path, Path]:
     """Generate all visualizations for the analysis results."""
     model_dir = results.output_dir / results.model_tag
-    heatmap_path = model_dir / f"uncertainty_heatmaps_{results.model_tag}.png"
-    trends_path = model_dir / f"uncertainty_trends_{results.model_tag}.png"
+    metric_suffix = f"_{results.metric}" if results.metric != "ce" else ""
+    heatmap_path = (
+        model_dir / f"uncertainty_heatmaps_{results.model_tag}{metric_suffix}.png"
+    )
+    trends_path = (
+        model_dir / f"uncertainty_trends_{results.model_tag}{metric_suffix}.png"
+    )
 
-    plot_heatmaps(results.df, heatmap_path)
-    plot_trends(results.df, trends_path)
+    plot_heatmaps(results.df, heatmap_path, metric=results.metric)
+    plot_trends(results.df, trends_path, metric=results.metric)
 
     return heatmap_path, trends_path
 
@@ -357,15 +400,29 @@ def save_findings(
     correlations: dict[str, float],
     output_dir: Path,
     model_tag: str,
+    metric: str = "ce",
 ) -> Path:
-    """Save key findings to a text file."""
+    """Save key findings to a text file.
+
+    Args:
+        summary: Summary statistics DataFrame
+        correlations: Correlation values
+        output_dir: Output directory
+        model_tag: Model identifier
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+    metric_abbrev = "Cross-H" if metric == "ce" else "JSD"
+    unit = " bits" if metric == "ce" else ""
+
     lines = [
         "KEY FINDINGS",
         f"Model tag: {model_tag}",
+        f"Divergence metric: {metric_name}",
         "",
         "CORRELATIONS:",
         f"  #optimal vs entropy: {correlations['entropy']:.4f}",
-        f"  #optimal vs cross-entropy: {correlations['cross_entropy']:.4f}",
+        f"  #optimal vs {metric_name.lower()}: {correlations['divergence']:.4f}",
         f"  #optimal vs optimal mass: {correlations['optimal_mass']:.4f}",
         "",
         "MEAN ENTROPY BY NUMBER OF OPTIMAL ACTIONS:",
@@ -376,24 +433,40 @@ def save_findings(
             f"  {int(row['num_optimal_actions'])} optimal actions -> "
             f"H_llm={row['mean_entropy']:.3f} ± {row['std_entropy']:.3f}, "
             f"H_opt={row['mean_optimal_entropy']:.3f} ± {row['std_optimal_entropy']:.3f}, "
-            f"Cross-H={row['mean_cross_entropy']:.3f} ± {row['std_cross_entropy']:.3f} bits"
+            f"{metric_abbrev}={row['mean_divergence']:.3f} ± {row['std_divergence']:.3f}{unit}"
         )
 
-    findings_path = output_dir / f"uncertainty_findings_{model_tag}.txt"
+    metric_suffix = f"_{metric}" if metric != "ce" else ""
+    findings_path = output_dir / f"uncertainty_findings_{model_tag}{metric_suffix}.txt"
     findings_path.write_text("\n".join(lines) + "\n")
     return findings_path
 
 
 def print_summary(
-    correlations: dict[str, float], summary: pd.DataFrame, model_tag: str
+    correlations: dict[str, float],
+    summary: pd.DataFrame,
+    model_tag: str,
+    metric: str = "ce",
 ) -> None:
-    """Print summary findings to console."""
+    """Print summary findings to console.
+
+    Args:
+        correlations: Correlation values
+        summary: Summary statistics DataFrame
+        model_tag: Model identifier
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+    metric_abbrev = "Cross-H" if metric == "ce" else "JSD"
+    unit = " bits" if metric == "ce" else ""
+
     print("\n5. KEY FINDINGS:")
     print(f"   Model: {model_tag}")
+    print(f"   Metric: {metric_name}")
     print(f"   - Correlation (#optimal vs entropy): {correlations['entropy']:.4f}")
     print(
-        f"   - Correlation (#optimal vs cross-entropy): "
-        f"{correlations['cross_entropy']:.4f}"
+        f"   - Correlation (#optimal vs {metric_name.lower()}): "
+        f"{correlations['divergence']:.4f}"
     )
     print(
         f"   - Correlation (#optimal vs optimal mass): "
@@ -406,7 +479,7 @@ def print_summary(
             f"      {int(row['num_optimal_actions'])} optimal actions -> "
             f"H_llm={row['mean_entropy']:.3f} ± {row['std_entropy']:.3f}, "
             f"H_opt={row['mean_optimal_entropy']:.3f} ± {row['std_optimal_entropy']:.3f}, "
-            f"Cross-H={row['mean_cross_entropy']:.3f} bits"
+            f"{metric_abbrev}={row['mean_divergence']:.3f}{unit}"
         )
 
 
@@ -420,6 +493,7 @@ def analyze_uncertainty(
     metadata_dir: str,
     output_dir: str,
     batch_size: int = 100,
+    metric: str = "ce",
 ) -> Optional[AnalysisResults]:
     """Run the complete uncertainty analysis pipeline.
 
@@ -428,7 +502,19 @@ def analyze_uncertainty(
     2. Computing optimal actions and uncertainty metrics
     3. Statistical analysis
     4. Saving results and generating visualizations
+
+    Args:
+        dataset_path: Path to the grids pickle file
+        metadata_dir: Directory containing LLM policy metadata JSON files
+        output_dir: Directory to save analysis outputs
+        batch_size: Number of metadata grids to load into memory at once
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
     """
+    metric_name = "Cross-Entropy" if metric == "ce" else "Jensen-Shannon Divergence"
+
+    print("\n" + "=" * 80)
+    print(f"UNCERTAINTY ANALYSIS (Metric: {metric_name})")
+    print("=" * 80)
 
     # Step 1: Load environments
     print("\n1. Loading environments...")
@@ -460,8 +546,8 @@ def analyze_uncertainty(
 
     # Step 4: Build DataFrame and compute statistics
     df = pd.DataFrame(metrics_dicts)
-    summary = compute_summary_statistics(df)
-    correlations = compute_correlations(df)
+    summary = compute_summary_statistics(df, metric=metric)
+    correlations = compute_correlations(df, metric=metric)
 
     # Step 5: Setup output directories
     output_path = Path(output_dir)
@@ -477,8 +563,10 @@ def analyze_uncertainty(
     print(f"   Saved summary statistics to: {summary_path}")
 
     # Step 7: Print and save findings
-    print_summary(correlations, summary, model_tag)
-    findings_path = save_findings(summary, correlations, model_output_dir, model_tag)
+    print_summary(correlations, summary, model_tag, metric=metric)
+    findings_path = save_findings(
+        summary, correlations, model_output_dir, model_tag, metric=metric
+    )
     print(f"   Saved findings summary to: {findings_path}")
 
     # Step 8: Generate visualizations
@@ -489,6 +577,7 @@ def analyze_uncertainty(
         correlations=correlations,
         model_tag=model_tag,
         output_dir=output_path,
+        metric=metric,
     )
     heatmap_path, trends_path = generate_visualizations(results)
     print(f"   Saved plots to: {heatmap_path} and {trends_path}")
@@ -536,8 +625,16 @@ def main() -> None:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=100,
+        default=50,
         help="Number of metadata grids to load into memory at once",
+    )
+
+    parser.add_argument(
+        "--metric",
+        type=str,
+        choices=["ce", "jsd"],
+        default="ce",
+        help="Divergence metric: 'ce' (cross-entropy) or 'jsd' (Jensen-Shannon, bounded [0,1])",
     )
 
     args = parser.parse_args()
@@ -547,6 +644,7 @@ def main() -> None:
         metadata_dir=args.metadata_dir,
         output_dir=args.output_dir,
         batch_size=args.batch_size,
+        metric=args.metric,
     )
 
 

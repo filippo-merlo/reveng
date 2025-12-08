@@ -64,6 +64,7 @@ class CellMetrics:
     entropy_bits: float
     optimal_entropy_bits: float
     cross_entropy_bits: Optional[float]
+    jsd: Optional[float]
     optimal_mass: float
     is_action_optimal: int
     action_probs: dict[str, float]
@@ -82,6 +83,7 @@ class CellMetrics:
             "entropy_bits": self.entropy_bits,
             "optimal_entropy_bits": self.optimal_entropy_bits,
             "cross_entropy_bits": self.cross_entropy_bits,
+            "jsd": self.jsd,
             "optimal_mass": self.optimal_mass,
             "is_action_optimal": self.is_action_optimal,
         }
@@ -383,6 +385,82 @@ def optimal_entropy(num_optimal_actions: int) -> float:
     return math.log2(num_optimal_actions)
 
 
+def kl_divergence(
+    optimal_actions: OptimalActionSet, dist: ActionDist, eps: float = LOGPROB_EPS
+) -> Optional[float]:
+    """Compute KL divergence from optimal to model distribution.
+
+    D_KL(optimal || model) = H(optimal, model) - H(optimal)
+
+    This measures the "excess" bits needed beyond the optimal entropy.
+    If the model perfectly matches optimal, KL = 0.
+
+    Args:
+        optimal_actions: Set of optimal action IDs
+        dist: Model's action probability distribution
+        eps: Small epsilon to avoid log(0)
+
+    Returns:
+        KL divergence in bits, or None if no optimal actions
+    """
+    ce = cross_entropy(optimal_actions, dist, eps)
+    if ce is None:
+        return None
+    h_opt = optimal_entropy(len(optimal_actions))
+    return ce - h_opt
+
+
+def jensen_shannon_divergence(
+    optimal_actions: OptimalActionSet, dist: ActionDist, eps: float = LOGPROB_EPS
+) -> Optional[float]:
+    """Compute Jensen-Shannon divergence between optimal and model distributions.
+
+    JSD(P || Q) = 0.5 * D_KL(P || M) + 0.5 * D_KL(Q || M)
+    where M = 0.5 * (P + Q)
+
+    JSD is symmetric and bounded in [0, 1] when using log base 2.
+    JSD = 0 means identical distributions, JSD = 1 means completely different.
+
+    Args:
+        optimal_actions: Set of optimal action IDs
+        dist: Model's action probability distribution
+        eps: Small epsilon for numerical stability
+
+    Returns:
+        JSD in [0, 1], or None if no optimal actions
+    """
+    if not optimal_actions:
+        return None
+
+    # Compute uniform optimal distribution
+    num_optimal = len(optimal_actions)
+    p_opt = 1.0 / num_optimal
+
+    # Compute mixture distribution M = 0.5 * (P + Q)
+    # and KL divergences
+    kl_p_m = 0.0  # D_KL(optimal || M)
+    kl_q_m = 0.0  # D_KL(model || M)
+
+    for action_id in ACTION_ID_TO_NAME:
+        # Optimal distribution: uniform over optimal actions
+        p = p_opt if action_id in optimal_actions else 0.0
+        # Model distribution
+        q = dist.get(action_id, 0.0)
+        # Mixture
+        m = 0.5 * (p + q)
+
+        # Add to KL(P || M)
+        if p > 0 and m > eps:
+            kl_p_m += p * math.log2(p / m)
+
+        # Add to KL(Q || M)
+        if q > 0 and m > eps:
+            kl_q_m += q * math.log2(q / m)
+
+    jsd = 0.5 * kl_p_m + 0.5 * kl_q_m
+    return jsd
+
+
 # =============================================================================
 # Data Loading
 # =============================================================================
@@ -492,6 +570,7 @@ def process_cell(
     entropy_bits = shannon_entropy(dist)
     optimal_entropy_bits = optimal_entropy(num_optimal)
     cross_entropy_bits = cross_entropy(optimal_set, dist)
+    jsd_value = jensen_shannon_divergence(optimal_set, dist)
     optimal_mass_val = compute_optimal_mass(optimal_set, dist)
     llm_action = cell.get("llm_response", -1)
 
@@ -511,6 +590,7 @@ def process_cell(
         entropy_bits=entropy_bits,
         optimal_entropy_bits=optimal_entropy_bits,
         cross_entropy_bits=cross_entropy_bits,
+        jsd=jsd_value,
         optimal_mass=optimal_mass_val,
         is_action_optimal=int(llm_action in optimal_set),
         action_probs=action_probs,
@@ -560,3 +640,45 @@ def compute_grid_mean_cross_entropy(
         return None
 
     return sum(valid_ce) / len(valid_ce)
+
+
+def compute_grid_mean_jsd(
+    grid_id: str, env: Any, metadata: GridMetadata
+) -> Optional[float]:
+    """Compute mean Jensen-Shannon divergence across all cells in a grid.
+
+    JSD is bounded [0, 1] and symmetric, making it easier to compare across
+    grids with different numbers of optimal actions per cell.
+
+    Args:
+        grid_id: Grid identifier
+        env: MiniGrid environment instance
+        metadata: Grid metadata with policy information
+
+    Returns:
+        Mean JSD in [0, 1], or None if no valid cells
+    """
+    optimal_actions_grid = compute_optimal_actions(env)
+    jsd_values: list[float] = []
+
+    for y, row in enumerate(metadata.policy_metadata):
+        for x, cell in enumerate(row):
+            if not isinstance(cell, dict):
+                continue
+
+            optimal_set = optimal_actions_grid[y][x]
+            if not optimal_set:
+                continue
+
+            dist = distribution_from_logprobs(cell.get("logprobs"))
+            if dist is None:
+                continue
+
+            jsd = jensen_shannon_divergence(optimal_set, dist)
+            if jsd is not None:
+                jsd_values.append(jsd)
+
+    if not jsd_values:
+        return None
+
+    return sum(jsd_values) / len(jsd_values)

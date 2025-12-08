@@ -33,11 +33,13 @@ from reveng.analysis.analysis_utils import (
     ActionDist,
     GridMetadata,
     compute_grid_mean_cross_entropy,
+    compute_grid_mean_jsd,
     compute_optimal_actions,
     compute_optimal_distribution,
     cross_entropy,
     discover_metadata_files,
     distribution_from_logprobs,
+    jensen_shannon_divergence,
     load_environments,
     load_metadata_batch,
     load_single_grid_metadata,
@@ -341,30 +343,52 @@ def visualize_grid_distributions(
     return fig
 
 
-def visualize_grid_with_cross_entropy(
+def visualize_grid_with_metric(
     env: Any,
     metadata: GridMetadata,
     grid_id: str,
+    metric: str = "ce",
     output_path: Optional[str] = None,
     show_plot: bool = True,
 ) -> Figure:
-    """Visualize a grid showing cross-entropy between optimal and LLM distributions.
+    """Visualize a grid showing divergence between optimal and LLM distributions.
 
     Creates a visualization showing:
-    - Cell colors based on cross-entropy (green=low, red=high)
-    - Arrows showing LLM's chosen action
-    - Text showing cross-entropy values
+    - Cell colors based on the metric (blue=low/good, red=high/bad)
+    - Arrows showing LLM's chosen action (green=optimal, red=suboptimal)
+    - Text showing metric values
 
     Args:
         env: MiniGrid environment instance
         metadata: Grid metadata with policy information
         grid_id: Grid identifier for the title
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
         output_path: Optional path to save the figure
         show_plot: Whether to display the plot interactively
 
     Returns:
         The matplotlib Figure object
     """
+    # Metric-specific configuration
+    if metric == "jsd":
+        metric_name = "Jensen-Shannon Divergence"
+        metric_abbrev = "JSD"
+        max_color_value = 1.0  # JSD is bounded [0, 1]
+        text_threshold = 0.5  # Threshold for white vs black text
+        metric_fn = jensen_shannon_divergence
+        low_label = "Low JSD (similar)"
+        high_label = "High JSD (different)"
+        unit = ""
+    else:  # ce
+        metric_name = "Cross-Entropy"
+        metric_abbrev = "CE"
+        max_color_value = 4.0  # CE can be larger
+        text_threshold = 2.0
+        metric_fn = cross_entropy
+        low_label = "Low CE"
+        high_label = "High CE"
+        unit = " bits"
+
     height = len(metadata.policy_metadata)
     width = len(metadata.policy_metadata[0]) if height > 0 else 0
     goal_pos = tuple(env.goal_pos) if hasattr(env, "goal_pos") else None
@@ -380,12 +404,12 @@ def visualize_grid_with_cross_entropy(
     ax.set_xticks(range(width + 1))
     ax.set_yticks(range(height + 1))
     ax.grid(True, alpha=0.3)
-    ax.set_title(f"Cross-Entropy: {grid_id}", fontsize=14, fontweight="bold")
+    ax.set_title(f"{metric_name}: {grid_id}", fontsize=14, fontweight="bold")
 
     wall_color = "#808080"
     goal_color = "#90EE90"
 
-    cross_entropies = []
+    metric_values: list[float] = []
 
     for j in range(height):
         for i in range(width):
@@ -400,24 +424,24 @@ def visualize_grid_with_cross_entropy(
             elif is_wall:
                 color = wall_color
             else:
-                # Compute cross-entropy
+                # Compute metric
                 if isinstance(cell_data, dict):
                     dist = distribution_from_logprobs(cell_data.get("logprobs"))
                 else:
                     dist = None
 
                 if dist and optimal_set:
-                    ce = cross_entropy(optimal_set, dist)
-                    if ce is not None:
-                        cross_entropies.append(ce)
-                        color = _entropy_to_color(ce, max_entropy=4.0)
+                    value = metric_fn(optimal_set, dist)
+                    if value is not None:
+                        metric_values.append(value)
+                        color = _entropy_to_color(value, max_entropy=max_color_value)
 
-                        # Draw cross-entropy value
+                        # Draw metric value
                         ax.text(
                             i + 0.5,
                             j + 0.5,
-                            f"{ce:.2f}",
-                            color="white" if ce > 2.0 else "black",
+                            f"{value:.2f}",
+                            color="white" if value > text_threshold else "black",
                             ha="center",
                             va="center",
                             fontsize=8,
@@ -444,13 +468,13 @@ def visualize_grid_with_cross_entropy(
             ax.add_patch(rect)
 
     # Add statistics
-    if cross_entropies:
-        mean_ce = sum(cross_entropies) / len(cross_entropies)
-        max_ce = max(cross_entropies)
+    if metric_values:
+        mean_val = sum(metric_values) / len(metric_values)
+        max_val = max(metric_values)
         ax.text(
             0.02,
             0.98,
-            f"Mean CE: {mean_ce:.3f} bits\nMax CE: {max_ce:.3f} bits",
+            f"Mean {metric_abbrev}: {mean_val:.3f}{unit}\nMax {metric_abbrev}: {max_val:.3f}{unit}",
             transform=ax.transAxes,
             fontsize=10,
             verticalalignment="top",
@@ -461,8 +485,8 @@ def visualize_grid_with_cross_entropy(
     legend_elements = [
         patches.Patch(facecolor=goal_color, edgecolor="black", label="Goal"),
         patches.Patch(facecolor=wall_color, edgecolor="black", label="Wall"),
-        patches.Patch(facecolor="#0000FF", edgecolor="black", label="Low CE"),
-        patches.Patch(facecolor="#FF0000", edgecolor="black", label="High CE"),
+        patches.Patch(facecolor="#0000FF", edgecolor="black", label=low_label),
+        patches.Patch(facecolor="#FF0000", edgecolor="black", label=high_label),
     ]
     ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
 
@@ -478,15 +502,57 @@ def visualize_grid_with_cross_entropy(
     return fig
 
 
+# Convenience wrappers for backward compatibility
+def visualize_grid_with_cross_entropy(
+    env: Any,
+    metadata: GridMetadata,
+    grid_id: str,
+    output_path: Optional[str] = None,
+    show_plot: bool = True,
+) -> Figure:
+    """Visualize a grid showing cross-entropy. See visualize_grid_with_metric."""
+    return visualize_grid_with_metric(
+        env,
+        metadata,
+        grid_id,
+        metric="ce",
+        output_path=output_path,
+        show_plot=show_plot,
+    )
+
+
+def visualize_grid_with_jsd(
+    env: Any,
+    metadata: GridMetadata,
+    grid_id: str,
+    output_path: Optional[str] = None,
+    show_plot: bool = True,
+) -> Figure:
+    """Visualize a grid showing JSD. See visualize_grid_with_metric."""
+    return visualize_grid_with_metric(
+        env,
+        metadata,
+        grid_id,
+        metric="jsd",
+        output_path=output_path,
+        show_plot=show_plot,
+    )
+
+
 # =============================================================================
 # CLI Commands
 # =============================================================================
 
 
 def cmd_search(args: argparse.Namespace) -> None:
-    """Search for grids with high cross-entropy."""
+    """Search for grids with high divergence from optimal (cross-entropy or JSD)."""
+    metric = args.metric
+    metric_name = "Cross-Entropy" if metric == "ce" else "Jensen-Shannon Divergence"
+    metric_abbrev = "CE" if metric == "ce" else "JSD"
+    metric_unit = "bits" if metric == "ce" else ""
+
     print("=" * 60)
-    print("GRID CROSS-ENTROPY SEARCH")
+    print(f"GRID {metric_name.upper()} SEARCH")
     print("=" * 60)
 
     # Load environments
@@ -511,7 +577,7 @@ def cmd_search(args: argparse.Namespace) -> None:
         f"{total_batches} batches of {batch_size}..."
     )
 
-    grid_ce_scores: list[tuple[str, float]] = []
+    grid_scores: list[tuple[str, float]] = []
     dataset_keys = set(grids_dataset.keys())
 
     for batch_idx, batch_files in enumerate(
@@ -526,51 +592,58 @@ def cmd_search(args: argparse.Namespace) -> None:
         metadata_batch = load_metadata_batch(batch_files, show_progress=True)
         common_keys = sorted(dataset_keys & set(metadata_batch.keys()))
 
-        # Compute cross-entropy for each grid in this batch
+        # Compute metric for each grid in this batch
         for grid_id in tqdm(
             common_keys,
-            desc=f"Computing CE (batch {batch_idx + 1}/{total_batches})",
+            desc=f"Computing {metric_abbrev} (batch {batch_idx + 1}/{total_batches})",
             leave=False,
         ):
             env = grids_dataset[grid_id]
             metadata = metadata_batch[grid_id]
-            mean_ce = compute_grid_mean_cross_entropy(grid_id, env, metadata)
-            if mean_ce is not None:
-                grid_ce_scores.append((grid_id, mean_ce))
+
+            if metric == "ce":
+                score = compute_grid_mean_cross_entropy(grid_id, env, metadata)
+            else:  # jsd
+                score = compute_grid_mean_jsd(grid_id, env, metadata)
+
+            if score is not None:
+                grid_scores.append((grid_id, score))
 
         # Free memory after each batch
         metadata_batch.clear()
         gc.collect()
 
-    # Sort by cross-entropy (descending)
-    grid_ce_scores.sort(key=lambda x: x[1], reverse=True)
+    # Sort by score (descending)
+    grid_scores.sort(key=lambda x: x[1], reverse=True)
 
     # Print results
     print("\n" + "=" * 60)
-    print(f"TOP {args.top_k} GRIDS BY MEAN CROSS-ENTROPY")
+    print(f"TOP {args.top_k} GRIDS BY MEAN {metric_name.upper()}")
     print("=" * 60)
 
-    for rank, (grid_id, mean_ce) in enumerate(grid_ce_scores[: args.top_k], 1):
-        print(f"{rank:3d}. {grid_id:45s} CE: {mean_ce:.4f} bits")
+    for rank, (grid_id, score) in enumerate(grid_scores[: args.top_k], 1):
+        unit_str = f" {metric_unit}" if metric_unit else ""
+        print(f"{rank:3d}. {grid_id:45s} {metric_abbrev}: {score:.4f}{unit_str}")
 
     # Print summary statistics
-    if grid_ce_scores:
-        all_ces = [ce for _, ce in grid_ce_scores]
+    if grid_scores:
+        all_scores = [s for _, s in grid_scores]
         print("\n" + "-" * 60)
         print("SUMMARY STATISTICS")
         print("-" * 60)
-        print(f"Total grids analyzed: {len(grid_ce_scores)}")
-        print(f"Mean cross-entropy:   {sum(all_ces) / len(all_ces):.4f} bits")
-        print(f"Min cross-entropy:    {min(all_ces):.4f} bits")
-        print(f"Max cross-entropy:    {max(all_ces):.4f} bits")
+        print(f"Total grids analyzed: {len(grid_scores)}")
+        print(f"Mean {metric_abbrev}:   {sum(all_scores) / len(all_scores):.4f}")
+        print(f"Min {metric_abbrev}:    {min(all_scores):.4f}")
+        print(f"Max {metric_abbrev}:    {max(all_scores):.4f}")
 
     # Save to file if requested
     if args.output:
         output_path = Path(args.output)
+        col_name = "mean_cross_entropy_bits" if metric == "ce" else "mean_jsd"
         with open(output_path, "w") as f:
-            f.write("rank,grid_id,mean_cross_entropy_bits\n")
-            for rank, (grid_id, mean_ce) in enumerate(grid_ce_scores, 1):
-                f.write(f"{rank},{grid_id},{mean_ce:.6f}\n")
+            f.write(f"rank,grid_id,{col_name}\n")
+            for rank, (grid_id, score) in enumerate(grid_scores, 1):
+                f.write(f"{rank},{grid_id},{score:.6f}\n")
         print(f"\nSaved full rankings to: {output_path}")
 
 
@@ -787,23 +860,25 @@ def cmd_visualize(args: argparse.Namespace) -> None:
     env = grids_dataset[grid_id]
 
     # Generate visualization
-    print("\n4. Generating visualization...")
+    metric = args.metric
+    print(f"\n4. Generating visualization (metric: {metric})...")
 
     output_path = args.output if args.output else None
 
-    if args.cross_entropy_only:
-        visualize_grid_with_cross_entropy(
+    if metric == "full":
+        visualize_grid_distributions(
             env=env,
             metadata=metadata,
             grid_id=grid_id,
             output_path=output_path,
             show_plot=not args.no_show,
         )
-    else:
-        visualize_grid_distributions(
+    else:  # ce or jsd
+        visualize_grid_with_metric(
             env=env,
             metadata=metadata,
             grid_id=grid_id,
+            metric=metric,
             output_path=output_path,
             show_plot=not args.no_show,
         )
@@ -826,23 +901,26 @@ Examples:
   # Search for grids with high cross-entropy
   uv run src/reveng/analysis/grid_inspector_cli.py search \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
-      --metadata-dir /path/to/metadata
+      --metadata-dir /path/to/metadata --metric ce
+
+  # Search for grids with high JSD (bounded [0,1], better for comparison)
+  uv run src/reveng/analysis/grid_inspector_cli.py search \\
+      --metadata-dir /path/to/metadata --metric jsd
 
   # Find grids with cells having 3+ optimal actions
   uv run src/reveng/analysis/grid_inspector_cli.py find-branching \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
       --min-branching 3 --verbose
 
-  # Visualize a specific grid
+  # Visualize a grid with JSD (bounded metric)
   uv run src/reveng/analysis/grid_inspector_cli.py visualize \\
       --grid-id grid_size5_complexity0.30_0001 \\
-      --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
-      --metadata-dir /path/to/metadata
+      --metadata-dir /path/to/metadata --metric jsd
 
-  # Visualize a random grid
+  # Visualize a random grid with full distributions
   uv run src/reveng/analysis/grid_inspector_cli.py visualize --random \\
       --dataset src/reveng/experiments/datasets/baseline_grids.pkl \\
-      --metadata-dir /path/to/metadata
+      --metadata-dir /path/to/metadata --metric full
         """,
     )
 
@@ -851,7 +929,7 @@ Examples:
     # Search subcommand
     search_parser = subparsers.add_parser(
         "search",
-        help="Search for grids with high cross-entropy",
+        help="Search for grids with high divergence from optimal (CE or JSD)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     search_parser.add_argument(
@@ -865,6 +943,13 @@ Examples:
         type=str,
         required=True,
         help="Directory containing LLM policy metadata JSON files",
+    )
+    search_parser.add_argument(
+        "--metric",
+        type=str,
+        choices=["ce", "jsd"],
+        default="ce",
+        help="Metric to use: 'ce' (cross-entropy) or 'jsd' (Jensen-Shannon divergence, bounded [0,1])",
     )
     search_parser.add_argument(
         "--top-k",
@@ -961,9 +1046,11 @@ Examples:
         help="Don't display the plot interactively (useful for saving only)",
     )
     viz_parser.add_argument(
-        "--cross-entropy-only",
-        action="store_true",
-        help="Show only cross-entropy visualization instead of full distribution comparison",
+        "--metric",
+        type=str,
+        choices=["full", "ce", "jsd"],
+        default="full",
+        help="Visualization mode: 'full' (distributions + entropy), 'ce' (cross-entropy), 'jsd' (Jensen-Shannon divergence)",
     )
 
     args = parser.parse_args()
