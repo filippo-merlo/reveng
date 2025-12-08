@@ -162,13 +162,13 @@ def _draw_distribution_text(
 
 
 def _entropy_to_color(entropy: float, max_entropy: float = 2.0) -> str:
-    """Convert entropy value to a color (low=green, high=red)."""
+    """Convert entropy value to a color (low=blue, high=red)."""
     # Normalize entropy to [0, 1]
     normalized = min(entropy / max_entropy, 1.0)
-    # Green (low entropy) to Red (high entropy)
+    # Blue (low entropy) to Red (high entropy)
     r = int(255 * normalized)
-    g = int(255 * (1 - normalized))
-    return f"#{r:02x}{g:02x}00"
+    b = int(255 * (1 - normalized))
+    return f"#{r:02x}00{b:02x}"
 
 
 def visualize_grid_distributions(
@@ -315,7 +315,7 @@ def visualize_grid_distributions(
     legend_elements = [
         patches.Patch(facecolor=goal_color, edgecolor="black", label="Goal"),
         patches.Patch(facecolor=wall_color, edgecolor="black", label="Wall"),
-        patches.Patch(facecolor="#00FF00", edgecolor="black", label="Low Entropy"),
+        patches.Patch(facecolor="#0000FF", edgecolor="black", label="Low Entropy"),
         patches.Patch(facecolor="#FF0000", edgecolor="black", label="High Entropy"),
     ]
     fig.legend(
@@ -458,7 +458,7 @@ def visualize_grid_with_cross_entropy(
     legend_elements = [
         patches.Patch(facecolor=goal_color, edgecolor="black", label="Goal"),
         patches.Patch(facecolor=wall_color, edgecolor="black", label="Wall"),
-        patches.Patch(facecolor="#00FF00", edgecolor="black", label="Low CE"),
+        patches.Patch(facecolor="#0000FF", edgecolor="black", label="Low CE"),
         patches.Patch(facecolor="#FF0000", edgecolor="black", label="High CE"),
     ]
     ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
