@@ -16,7 +16,7 @@ logger = logging.getLogger(__file__)
 
 def get_trajectory(
     grid_size: int = 5,
-    grid_complexity: int = 0,
+    grid_complexity: float = 0.0,
     max_steps_per_trajectory: int = 50,
     max_tokens: int = 10000,
     temperature: float = 0.7,

@@ -242,8 +242,8 @@ def generate_trajectory(
     traj_metadata = {}
     start_pos = tuple(int(x) for x in env.unwrapped.agent_pos)
     goal_pos = tuple(int(x) for x in env.unwrapped.goal_pos)
-    traj_metadata["agent_start_coordinates"] = start_pos
-    traj_metadata["goal_coordinates"] = goal_pos
+    traj_metadata["agent_start_coordinates"] = start_pos[1], start_pos[0]
+    traj_metadata["goal_coordinates"] = goal_pos[1], goal_pos[0]
     traj_metadata["astar_distance"] = get_astar_distance(env, observation)
 
     while not (terminated or truncated):
