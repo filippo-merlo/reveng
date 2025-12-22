@@ -14,9 +14,16 @@ from tqdm import tqdm
 
 from reveng.analysis.analysis_utils import (
     CellMetrics,
+    ControlledAnalysisResult,
+    DistanceToGoalMetrics,
     GridMetadata,
-    compute_optimal_actions,
+    UncertaintyAccuracyMetrics,
+    compute_distance_summary,
+    compute_distance_to_goal_metrics,
     compute_optimal_mass,
+    compute_selective_prediction_curve,
+    compute_stratified_summary,
+    compute_uncertainty_accuracy_metrics,
     cross_entropy,
     discover_metadata_files,
     distribution_from_logprobs,
@@ -24,6 +31,7 @@ from reveng.analysis.analysis_utils import (
     load_environments,
     load_metadata_batch,
     optimal_entropy,
+    run_controlled_analysis,
     sanitize_label,
     shannon_entropy,
 )
@@ -43,6 +51,15 @@ class AnalysisResults:
     model_tag: str
     output_dir: Path
     metric: str = "ce"  # 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    # Controlled analysis results (controlling for grid_size and complexity)
+    controlled_analysis: Optional[ControlledAnalysisResult] = None
+    stratified_summary: Optional[pd.DataFrame] = None
+    # Uncertainty-accuracy analysis
+    uncertainty_accuracy: Optional[UncertaintyAccuracyMetrics] = None
+    selective_prediction: Optional[pd.DataFrame] = None
+    # Distance-to-goal analysis
+    distance_metrics: Optional[DistanceToGoalMetrics] = None
+    distance_summary: Optional[pd.DataFrame] = None
 
 
 # =============================================================================
@@ -109,10 +126,11 @@ def _process_grid_for_analysis(
     """
     from reveng.analysis.analysis_utils import (
         ACTION_ID_TO_NAME,
+        compute_optimal_actions_and_distances,
     )
 
     results: list[CellMetrics] = []
-    optimal_actions = compute_optimal_actions(env)
+    optimal_actions, distance_grid = compute_optimal_actions_and_distances(env)
 
     for y, row in enumerate(metadata.policy_metadata):
         for x, cell in enumerate(row):
@@ -157,6 +175,7 @@ def _process_grid_for_analysis(
                     optimal_mass=optimal_mass_val,
                     is_action_optimal=int(llm_action in optimal_set),
                     action_probs=action_probs,
+                    distance_to_goal=distance_grid[y][x],
                 )
             )
 
@@ -207,6 +226,66 @@ def compute_correlations(df: pd.DataFrame, metric: str = "ce") -> dict[str, floa
         "divergence": df["num_optimal_actions"].corr(df[divergence_col]),
         "optimal_mass": df["num_optimal_actions"].corr(df["optimal_mass"]),
     }
+
+
+def compute_controlled_analysis_for_uncertainty(
+    df: pd.DataFrame, metric: str = "ce"
+) -> ControlledAnalysisResult:
+    """Run controlled analysis for uncertainty metrics.
+
+    Computes correlations between num_optimal_actions and uncertainty metrics
+    while controlling for grid_size and complexity.
+
+    Args:
+        df: DataFrame with cell metrics
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+
+    Returns:
+        ControlledAnalysisResult with raw, within-stratum, and partial correlations
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+    y_cols = ["entropy_bits", divergence_col, "optimal_mass"]
+    control_cols = ["grid_size", "complexity"]
+
+    return run_controlled_analysis(
+        df=df,
+        x_col="num_optimal_actions",
+        y_cols=y_cols,
+        control_cols=control_cols,
+        min_samples=30,
+        min_stratum_size=10,
+    )
+
+
+def compute_stratified_uncertainty_summary(
+    df: pd.DataFrame, metric: str = "ce"
+) -> pd.DataFrame:
+    """Compute summary statistics stratified by grid_size, complexity, and num_optimal.
+
+    Args:
+        df: DataFrame with cell metrics
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+
+    Returns:
+        DataFrame with stratified summary statistics
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+
+    agg_config = {
+        "samples": ("entropy_bits", "count"),
+        "mean_entropy": ("entropy_bits", "mean"),
+        "std_entropy": ("entropy_bits", "std"),
+        "mean_divergence": (divergence_col, "mean"),
+        "std_divergence": (divergence_col, "std"),
+        "mean_optimal_mass": ("optimal_mass", "mean"),
+        "std_optimal_mass": ("optimal_mass", "std"),
+    }
+
+    return compute_stratified_summary(
+        df=df,
+        strata_cols=["grid_size", "complexity", "num_optimal_actions"],
+        agg_config=agg_config,
+    )
 
 
 # =============================================================================
@@ -360,21 +439,290 @@ def plot_trends(df: pd.DataFrame, output_path: Path, metric: str = "ce") -> None
     plt.close(fig)
 
 
-def generate_visualizations(results: AnalysisResults) -> tuple[Path, Path]:
-    """Generate all visualizations for the analysis results."""
+def plot_controlled_trends(
+    df: pd.DataFrame, output_path: Path, metric: str = "ce"
+) -> None:
+    """Plot divergence vs num_optimal_actions, faceted by grid_size.
+
+    Shows the relationship between branching factor and uncertainty within
+    each grid size, with separate lines for each complexity level.
+
+    Args:
+        df: DataFrame with cell metrics
+        output_path: Path to save the figure
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+    metric_ylabel = "Mean Cross-Entropy (bits)" if metric == "ce" else "Mean JSD"
+
+    # Aggregate by (grid_size, complexity, num_optimal_actions)
+    grouped = (
+        df.groupby(["grid_size", "complexity", "num_optimal_actions"])
+        .agg(
+            mean_divergence=(divergence_col, "mean"),
+            std_divergence=(divergence_col, "std"),
+            count=(divergence_col, "count"),
+        )
+        .reset_index()
+    )
+
+    grid_sizes = sorted(df["grid_size"].unique())
+    n_grids = len(grid_sizes)
+    fig, axes = plt.subplots(1, n_grids, figsize=(6 * n_grids, 5), sharey=True)
+
+    if n_grids == 1:
+        axes = [axes]
+
+    complexities = sorted(df["complexity"].unique())
+    colors = plt.cm.viridis(
+        [i / max(len(complexities) - 1, 1) for i in range(len(complexities))]
+    )
+
+    for ax, grid_size in zip(axes, grid_sizes):
+        subset = grouped[grouped["grid_size"] == grid_size]
+
+        for i, complexity in enumerate(complexities):
+            cx_subset = subset[subset["complexity"] == complexity]
+            if len(cx_subset) > 0:
+                ax.plot(
+                    cx_subset["num_optimal_actions"],
+                    cx_subset["mean_divergence"],
+                    marker="o",
+                    linewidth=2,
+                    color=colors[i],
+                    label=f"cx={complexity:.2f}",
+                )
+
+        ax.set_title(f"Grid Size {grid_size}", fontsize=12, fontweight="bold")
+        ax.set_xlabel("Number of Optimal Actions", fontsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8, ncol=2)
+
+    axes[0].set_ylabel(metric_ylabel, fontsize=11)
+
+    fig.suptitle(
+        f"{metric_name} vs Branching Factor (Controlled by Grid Size)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_correlation_comparison(
+    controlled_result: ControlledAnalysisResult,
+    output_path: Path,
+    metric: str = "ce",
+) -> None:
+    """Plot comparison of raw vs controlled correlations.
+
+    Shows how correlations change when controlling for grid_size and complexity.
+
+    Args:
+        controlled_result: ControlledAnalysisResult from controlled analysis
+        output_path: Path to save the figure
+        metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+    """
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
+    metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
+
+    # Collect correlations for each metric
+    metrics_to_plot = ["entropy_bits", divergence_col, "optimal_mass"]
+    metric_labels = ["LLM Entropy", metric_name, "Optimal Mass"]
+
+    raw_rs = []
+    within_rs = []
+    partial_rs = []
+
+    for m in metrics_to_plot:
+        raw_rs.append(
+            controlled_result.raw_correlations.get(m, type("", (), {"r": 0})()).r
+            if m in controlled_result.raw_correlations
+            else 0
+        )
+        within_rs.append(
+            controlled_result.within_stratum_correlations.get(
+                m, type("", (), {"r": 0})()
+            ).r
+            if m in controlled_result.within_stratum_correlations
+            else 0
+        )
+        partial_rs.append(
+            controlled_result.partial_correlations.get(m, type("", (), {"r": 0})()).r
+            if m in controlled_result.partial_correlations
+            else 0
+        )
+
+    # Fix: properly extract r values
+    raw_rs = []
+    within_rs = []
+    partial_rs = []
+    for m in metrics_to_plot:
+        raw_rs.append(
+            controlled_result.raw_correlations[m].r
+            if m in controlled_result.raw_correlations
+            else 0
+        )
+        within_rs.append(
+            controlled_result.within_stratum_correlations[m].r
+            if m in controlled_result.within_stratum_correlations
+            else 0
+        )
+        partial_rs.append(
+            controlled_result.partial_correlations[m].r
+            if m in controlled_result.partial_correlations
+            else 0
+        )
+
+    x = range(len(metrics_to_plot))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.bar([i - width for i in x], raw_rs, width, label="Raw", color="steelblue")
+    ax.bar(x, within_rs, width, label="Within-Stratum", color="darkorange")
+    ax.bar(
+        [i + width for i in x], partial_rs, width, label="Partial", color="forestgreen"
+    )
+
+    ax.set_ylabel("Correlation (r)", fontsize=12)
+    ax.set_xlabel("Metric", fontsize=12)
+    ax.set_title(
+        "Correlation with # Optimal Actions:\nRaw vs Controlled",
+        fontsize=14,
+        fontweight="bold",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(metric_labels, fontsize=11)
+    ax.legend(fontsize=10)
+    ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
+    ax.grid(True, axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_metrics_by_distance(
+    distance_summary: pd.DataFrame,
+    output_path: Path,
+    metric: str = "jsd",
+    figsize: tuple[float, float] = (10, 4),
+) -> None:
+    """Plot entropy, divergence, and accuracy vs distance to goal.
+
+    Args:
+        distance_summary: DataFrame from compute_distance_summary
+        output_path: Path to save figure
+        metric: 'jsd' or 'ce'
+        figsize: Figure size
+    """
+    metric_label = "JSD" if metric == "jsd" else "Cross-Entropy"
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+
+    # Entropy vs distance
+    axes[0].errorbar(
+        distance_summary["distance_to_goal"],
+        distance_summary["mean_entropy"],
+        yerr=distance_summary["std_entropy"],
+        marker="o",
+        capsize=3,
+        color="steelblue",
+    )
+    axes[0].set_xlabel("Distance to Goal", fontsize=10)
+    axes[0].set_ylabel("Mean Entropy (bits)", fontsize=10)
+    axes[0].set_title("Entropy vs Distance", fontsize=11, fontweight="bold")
+    axes[0].grid(True, alpha=0.3)
+
+    # Divergence vs distance
+    axes[1].plot(
+        distance_summary["distance_to_goal"],
+        distance_summary["mean_divergence"],
+        marker="o",
+        linewidth=2,
+        color="darkorange",
+    )
+    axes[1].set_xlabel("Distance to Goal", fontsize=10)
+    axes[1].set_ylabel(f"Mean {metric_label}", fontsize=10)
+    axes[1].set_title(f"{metric_label} vs Distance", fontsize=11, fontweight="bold")
+    axes[1].grid(True, alpha=0.3)
+
+    # Accuracy vs distance
+    axes[2].plot(
+        distance_summary["distance_to_goal"],
+        distance_summary["accuracy"],
+        marker="o",
+        linewidth=2,
+        color="forestgreen",
+    )
+    axes[2].set_xlabel("Distance to Goal", fontsize=10)
+    axes[2].set_ylabel("Accuracy", fontsize=10)
+    axes[2].set_title("Accuracy vs Distance", fontsize=11, fontweight="bold")
+    axes[2].set_ylim(0, 1.05)
+    axes[2].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def generate_visualizations(results: AnalysisResults) -> dict[str, Path]:
+    """Generate all visualizations for the analysis results.
+
+    Returns:
+        Dictionary mapping visualization names to their file paths
+    """
     model_dir = results.output_dir / results.model_tag
     metric_suffix = f"_{results.metric}" if results.metric != "ce" else ""
-    heatmap_path = (
+
+    paths: dict[str, Path] = {}
+
+    # Original visualizations
+    paths["heatmaps"] = (
         model_dir / f"uncertainty_heatmaps_{results.model_tag}{metric_suffix}.png"
     )
-    trends_path = (
+    paths["trends"] = (
         model_dir / f"uncertainty_trends_{results.model_tag}{metric_suffix}.png"
     )
 
-    plot_heatmaps(results.df, heatmap_path, metric=results.metric)
-    plot_trends(results.df, trends_path, metric=results.metric)
+    plot_heatmaps(results.df, paths["heatmaps"], metric=results.metric)
+    plot_trends(results.df, paths["trends"], metric=results.metric)
 
-    return heatmap_path, trends_path
+    # Controlled analysis visualizations
+    paths["controlled_trends"] = (
+        model_dir
+        / f"uncertainty_controlled_trends_{results.model_tag}{metric_suffix}.png"
+    )
+    plot_controlled_trends(
+        results.df, paths["controlled_trends"], metric=results.metric
+    )
+
+    if results.controlled_analysis is not None:
+        paths["correlation_comparison"] = (
+            model_dir
+            / f"uncertainty_correlation_comparison_{results.model_tag}{metric_suffix}.png"
+        )
+        plot_correlation_comparison(
+            results.controlled_analysis,
+            paths["correlation_comparison"],
+            metric=results.metric,
+        )
+
+    # Distance-to-goal visualizations
+    if results.distance_summary is not None and len(results.distance_summary) > 0:
+        paths["metrics_by_distance"] = (
+            model_dir / f"metrics_by_distance_{results.model_tag}{metric_suffix}.png"
+        )
+        plot_metrics_by_distance(
+            results.distance_summary,
+            paths["metrics_by_distance"],
+            metric=results.metric,
+        )
+
+    return paths
 
 
 # =============================================================================
@@ -401,6 +749,7 @@ def save_findings(
     output_dir: Path,
     model_tag: str,
     metric: str = "ce",
+    controlled_analysis: Optional[ControlledAnalysisResult] = None,
 ) -> Path:
     """Save key findings to a text file.
 
@@ -410,9 +759,11 @@ def save_findings(
         output_dir: Output directory
         model_tag: Model identifier
         metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+        controlled_analysis: Optional controlled analysis results
     """
     metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
     metric_abbrev = "Cross-H" if metric == "ce" else "JSD"
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
     unit = " bits" if metric == "ce" else ""
 
     lines = [
@@ -420,13 +771,74 @@ def save_findings(
         f"Model tag: {model_tag}",
         f"Divergence metric: {metric_name}",
         "",
-        "CORRELATIONS:",
+        "=" * 60,
+        "RAW CORRELATIONS (unadjusted):",
+        "=" * 60,
         f"  #optimal vs entropy: {correlations['entropy']:.4f}",
         f"  #optimal vs {metric_name.lower()}: {correlations['divergence']:.4f}",
         f"  #optimal vs optimal mass: {correlations['optimal_mass']:.4f}",
-        "",
-        "MEAN ENTROPY BY NUMBER OF OPTIMAL ACTIONS:",
     ]
+
+    # Add controlled analysis if available
+    if controlled_analysis is not None:
+        lines.extend(
+            [
+                "",
+                "=" * 60,
+                "CONTROLLED ANALYSIS (controlling for grid_size and complexity):",
+                "=" * 60,
+                "",
+                "Within-Stratum Correlations (averaged across strata):",
+            ]
+        )
+        for col, corr in controlled_analysis.within_stratum_correlations.items():
+            col_label = (
+                "entropy"
+                if col == "entropy_bits"
+                else (metric_name.lower() if col == divergence_col else "optimal_mass")
+            )
+            lines.append(f"  #optimal vs {col_label}: r={corr.r:.4f} (n={corr.n})")
+
+        lines.extend(
+            [
+                "",
+                "Partial Correlations (residualized):",
+            ]
+        )
+        for col, corr in controlled_analysis.partial_correlations.items():
+            col_label = (
+                "entropy"
+                if col == "entropy_bits"
+                else (metric_name.lower() if col == divergence_col else "optimal_mass")
+            )
+            p_str = f", p={corr.p_value:.4f}" if corr.p_value is not None else ""
+            sig = " *" if corr.p_value is not None and corr.p_value < 0.05 else ""
+            lines.append(f"  #optimal vs {col_label}: r={corr.r:.4f}{p_str}{sig}")
+
+        if controlled_analysis.regression is not None:
+            reg = controlled_analysis.regression
+            lines.extend(
+                [
+                    "",
+                    f"OLS Regression ({divergence_col} ~ num_optimal + grid_size + complexity):",
+                    f"  R² = {reg.r_squared:.4f}, Adj R² = {reg.adj_r_squared:.4f}, n = {reg.n}",
+                    "  Coefficients:",
+                ]
+            )
+            for var, coef in reg.coefficients.items():
+                p_val = reg.p_values.get(var)
+                p_str = f", p={p_val:.4f}" if p_val is not None else ""
+                sig = " *" if p_val is not None and p_val < 0.05 else ""
+                lines.append(f"    {var}: {coef:.4f}{p_str}{sig}")
+
+    lines.extend(
+        [
+            "",
+            "=" * 60,
+            "MEAN ENTROPY BY NUMBER OF OPTIMAL ACTIONS:",
+            "=" * 60,
+        ]
+    )
 
     for _, row in summary.iterrows():
         lines.append(
@@ -447,6 +859,7 @@ def print_summary(
     summary: pd.DataFrame,
     model_tag: str,
     metric: str = "ce",
+    controlled_analysis: Optional[ControlledAnalysisResult] = None,
 ) -> None:
     """Print summary findings to console.
 
@@ -455,24 +868,43 @@ def print_summary(
         summary: Summary statistics DataFrame
         model_tag: Model identifier
         metric: 'ce' for cross-entropy or 'jsd' for Jensen-Shannon divergence
+        controlled_analysis: Optional controlled analysis results
     """
     metric_name = "Cross-Entropy" if metric == "ce" else "JSD"
     metric_abbrev = "Cross-H" if metric == "ce" else "JSD"
+    divergence_col = "cross_entropy_bits" if metric == "ce" else "jsd"
     unit = " bits" if metric == "ce" else ""
 
     print("\n5. KEY FINDINGS:")
     print(f"   Model: {model_tag}")
     print(f"   Metric: {metric_name}")
-    print(f"   - Correlation (#optimal vs entropy): {correlations['entropy']:.4f}")
-    print(
-        f"   - Correlation (#optimal vs {metric_name.lower()}): "
-        f"{correlations['divergence']:.4f}"
-    )
-    print(
-        f"   - Correlation (#optimal vs optimal mass): "
-        f"{correlations['optimal_mass']:.4f}"
-    )
-    print("   - Mean entropy by # optimal actions:")
+    print("\n   RAW CORRELATIONS:")
+    print(f"   - #optimal vs entropy: {correlations['entropy']:.4f}")
+    print(f"   - #optimal vs {metric_name.lower()}: {correlations['divergence']:.4f}")
+    print(f"   - #optimal vs optimal mass: {correlations['optimal_mass']:.4f}")
+
+    if controlled_analysis is not None:
+        print("\n   CONTROLLED CORRELATIONS (grid_size, complexity):")
+        print("   Within-Stratum:")
+        for col, corr in controlled_analysis.within_stratum_correlations.items():
+            col_label = (
+                "entropy"
+                if col == "entropy_bits"
+                else (metric_name.lower() if col == divergence_col else "optimal_mass")
+            )
+            print(f"   - #optimal vs {col_label}: r={corr.r:.4f}")
+
+        print("   Partial (residualized):")
+        for col, corr in controlled_analysis.partial_correlations.items():
+            col_label = (
+                "entropy"
+                if col == "entropy_bits"
+                else (metric_name.lower() if col == divergence_col else "optimal_mass")
+            )
+            sig = "*" if corr.p_value is not None and corr.p_value < 0.05 else ""
+            print(f"   - #optimal vs {col_label}: r={corr.r:.4f}{sig}")
+
+    print("\n   Mean entropy by # optimal actions:")
 
     for _, row in summary.iterrows():
         print(
@@ -549,6 +981,37 @@ def analyze_uncertainty(
     summary = compute_summary_statistics(df, metric=metric)
     correlations = compute_correlations(df, metric=metric)
 
+    # Step 4b: Controlled analysis (controlling for grid_size and complexity)
+    print("\n4. Running controlled analysis...")
+    controlled_analysis = compute_controlled_analysis_for_uncertainty(df, metric=metric)
+    stratified_summary = compute_stratified_uncertainty_summary(df, metric=metric)
+    print("   Computed within-stratum and partial correlations")
+
+    # Step 4c: Uncertainty-accuracy analysis
+    print("\n   Computing uncertainty-accuracy metrics...")
+    divergence_col = "jsd" if metric == "jsd" else "cross_entropy_bits"
+    uncertainty_accuracy = compute_uncertainty_accuracy_metrics(df)
+    selective_prediction = compute_selective_prediction_curve(df)
+    auroc_str = (
+        f"{uncertainty_accuracy.auroc:.3f}" if uncertainty_accuracy.auroc else "N/A"
+    )
+    print(
+        f"   Accuracy: {uncertainty_accuracy.accuracy:.3f}, "
+        f"AUROC: {auroc_str}, "
+        f"ECE: {uncertainty_accuracy.ece:.3f}"
+    )
+
+    # Step 4d: Distance-to-goal analysis
+    print("\n   Computing distance-to-goal metrics...")
+    distance_metrics = compute_distance_to_goal_metrics(
+        df, divergence_col=divergence_col
+    )
+    distance_summary = compute_distance_summary(df, divergence_col=divergence_col)
+    print(
+        f"   Corr(entropy, distance): {distance_metrics.correlation_entropy_distance:.3f}, "
+        f"Corr(accuracy, distance): {distance_metrics.correlation_accuracy_distance:.3f}"
+    )
+
     # Step 5: Setup output directories
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -559,18 +1022,34 @@ def analyze_uncertainty(
     states_path, summary_path = save_csv_outputs(
         df, summary, model_output_dir, model_tag
     )
-    print(f"\n4. Saved per-state metrics to: {states_path}")
+    print(f"\n5. Saved per-state metrics to: {states_path}")
     print(f"   Saved summary statistics to: {summary_path}")
 
+    # Save stratified summary
+    stratified_path = model_output_dir / f"uncertainty_stratified_{model_tag}.csv"
+    stratified_summary.to_csv(stratified_path, index=False)
+    print(f"   Saved stratified summary to: {stratified_path}")
+
     # Step 7: Print and save findings
-    print_summary(correlations, summary, model_tag, metric=metric)
+    print_summary(
+        correlations,
+        summary,
+        model_tag,
+        metric=metric,
+        controlled_analysis=controlled_analysis,
+    )
     findings_path = save_findings(
-        summary, correlations, model_output_dir, model_tag, metric=metric
+        summary,
+        correlations,
+        model_output_dir,
+        model_tag,
+        metric=metric,
+        controlled_analysis=controlled_analysis,
     )
     print(f"   Saved findings summary to: {findings_path}")
 
     # Step 8: Generate visualizations
-    print("\n6. Generating visualizations...")
+    print("\n7. Generating visualizations...")
     results = AnalysisResults(
         df=df,
         summary=summary,
@@ -578,9 +1057,15 @@ def analyze_uncertainty(
         model_tag=model_tag,
         output_dir=output_path,
         metric=metric,
+        controlled_analysis=controlled_analysis,
+        stratified_summary=stratified_summary,
+        uncertainty_accuracy=uncertainty_accuracy,
+        selective_prediction=selective_prediction,
+        distance_metrics=distance_metrics,
+        distance_summary=distance_summary,
     )
-    heatmap_path, trends_path = generate_visualizations(results)
-    print(f"   Saved plots to: {heatmap_path} and {trends_path}")
+    viz_paths = generate_visualizations(results)
+    print(f"   Saved {len(viz_paths)} plots to: {model_output_dir}")
 
     print("\n" + "=" * 80)
     print("UNCERTAINTY ANALYSIS COMPLETE")

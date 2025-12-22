@@ -1,3 +1,5 @@
 *.png
 *.csv
 together_ai**/**
+model_comparison/**
+isotransform_comparison/**
