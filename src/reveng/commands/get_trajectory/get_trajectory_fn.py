@@ -168,6 +168,7 @@ def get_trajectory(
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
         step_dic["output_tokens"] = to_dic_list(step_dic["output_text"], tokenizer, groups=["output"])
+        step_dic["output_n_tokens"] = len(step_dic["output_tokens"])
         step_dic["output_tokens"] = annotate_output_tokens(model_name, step_dic["output_tokens"])
         
         for i, t in enumerate(step_dic["output_tokens"]):
