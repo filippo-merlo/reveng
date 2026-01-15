@@ -2,7 +2,7 @@
 
 import tyro
 import logging
-from reveng.commands.get_trajectory import get_trajectory
+from reveng.commands.get_trajectory import get_trajectory, get_trajectories
 
 
 def main():
@@ -11,6 +11,7 @@ def main():
     Configures logging and sets up the CLI with available subcommands using tyro.
     Currently supports the following subcommands:
     - get_trajectory: Generate and save agent trajectories in navigation environments
+    - get_trajectories: Generate multiple agent trajectories across parameter combinations in parallel
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -18,7 +19,8 @@ def main():
     )
     tyro.extras.subcommand_cli_from_dict(
         {
-            "get_trajectory": get_trajectory
+            "get_trajectory": get_trajectory,
+            "get_trajectories": get_trajectories
         }
     )
 

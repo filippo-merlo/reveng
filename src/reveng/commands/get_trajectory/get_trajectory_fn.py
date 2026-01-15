@@ -4,6 +4,9 @@ import numpy as np
 import json
 import logging
 from typing import Literal
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import product
+from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from reveng.agents.llm_agent import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
@@ -190,3 +193,118 @@ def get_trajectory(
     }
     with open(output_path, "w") as f:
         json.dump(out, f, cls=CompactJSONEncoder, ensure_ascii=False, indent=4)
+
+
+def get_trajectories(
+    grid_sizes: list[int] = [5],
+    grid_complexities: list[float] = [0.0],
+    max_steps_per_trajectory: int = 50,
+    max_tokens: int = 10000,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
+    top_logprobs: int = 5,
+    seed: int = 42,
+    reasoning_effort: Literal["low", "medium", "high"] = "low",
+    model_names: list[str] = ["together_ai/openai/gpt-oss-20b"],
+    observation_placeholders: list[str] = ["grid_state"],
+    output_dir: str = ".",
+    verbose: bool = False,
+    num_examples: int = 1,
+    max_workers: int | None = None
+):
+    """Generate multiple agent trajectories across parameter combinations in parallel.
+
+    Creates trajectories for all combinations of grid_sizes, grid_complexities, and model_names,
+    running the specified number of examples per combination in parallel. Each trajectory is saved
+    to a separate JSON file with a name based on the parameters.
+
+    Args:
+        grid_sizes: List of grid sizes to use for trajectory generation.
+        grid_complexities: List of grid complexity levels to use.
+        max_steps_per_trajectory: Maximum number of steps to generate in each trajectory.
+        max_tokens: Maximum tokens for model generation per step.
+        temperature: Sampling temperature for the model (higher = more random).
+        top_p: Nucleus sampling parameter (cumulative probability threshold).
+        top_logprobs: Number of top log probabilities to return for each token.
+        seed: Base random seed for reproducibility. Each example uses seed + example_id.
+        reasoning_effort: Reasoning effort level for the model ("low", "medium", or "high").
+        model_names: List of model names in format "provider/model_id".
+        observation_placeholders: List of placeholder names in the prompt template.
+        output_dir: Directory to save the output JSON files.
+        verbose: If True, print detailed logging during trajectory generation.
+        num_examples: Number of different examples to generate per parameter combination.
+        max_workers: Maximum number of parallel workers. If None, uses min(32, total_tasks).
+
+    Returns:
+        None. Results are saved to individual JSON files in output_dir with format:
+        {model_sanitized}_size{grid_size}_comp{grid_complexity}_{example_id}.json
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Generate all parameter combinations
+    all_combinations = list(product(grid_sizes, grid_complexities, model_names, range(num_examples)))
+
+    total_tasks = len(all_combinations)
+    logger.info(f"Generating {total_tasks} trajectories across {len(grid_sizes)} grid sizes, "
+                f"{len(grid_complexities)} complexities, {len(model_names)} models, "
+                f"with {num_examples} examples each.")
+
+    def _generate_single_task(params: tuple) -> dict:
+        """Generate a single trajectory for given parameters."""
+        grid_size, grid_complexity, model_name, example_id = params
+        task_seed = seed + example_id
+
+        # Sanitize model name for filename
+        model_sanitized = model_name.replace("/", "_").replace(".", "_")
+
+        output_filename = f"{model_sanitized}_size{grid_size}_comp{grid_complexity}_{example_id}.json"
+        output_path = str(Path(output_dir) / output_filename)
+
+        if verbose:
+            logger.info(f"Starting task: model={model_name}, size={grid_size}, "
+                       f"complexity={grid_complexity}, example={example_id}, seed={task_seed}")
+
+        try:
+            get_trajectory(
+                grid_size=grid_size,
+                grid_complexity=grid_complexity,
+                max_steps_per_trajectory=max_steps_per_trajectory,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_logprobs=top_logprobs,
+                seed=task_seed,
+                reasoning_effort=reasoning_effort,
+                model_name=model_name,
+                observation_placeholders=observation_placeholders,
+                output_path=output_path,
+                verbose=verbose
+            )
+            return {"status": "success", "output_path": output_path, "params": params}
+        except Exception as e:
+            logger.error(f"Failed to generate trajectory for {params}: {e}")
+            return {"status": "error", "error": str(e), "params": params}
+
+    # Set default max_workers if not specified
+    if max_workers is None:
+        max_workers = min(32, total_tasks)
+
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_generate_single_task, combo): combo for combo in all_combinations}
+
+        for future in as_completed(futures):
+            combo = futures[future]
+            try:
+                result = future.result()
+                results.append(result)
+                if result["status"] == "success":
+                    logger.info(f"Completed: {result['output_path']}")
+                else:
+                    logger.error(f"Failed for {combo}: {result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.error(f"Exception for {combo}: {e}")
+                results.append({"status": "error", "error": str(e), "params": combo})
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    logger.info(f"Completed {success_count}/{total_tasks} trajectories successfully.")
