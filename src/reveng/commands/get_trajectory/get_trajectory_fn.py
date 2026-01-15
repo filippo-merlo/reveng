@@ -14,6 +14,7 @@ from reveng.environment_generator.wrappers.text_obs_wrapper import FullObservabi
 
 from reveng.commands.get_trajectory.get_trajectory_utils import generate_trajectory, to_dic_list, annotate_output_tokens
 from reveng.commands.get_trajectory.compact_json_encoder import CompactJSONEncoder
+from reveng.commands.get_trajectory.rate_limiter import RateLimiter, RateLimitInfo, TOGETHER_AI_FREE_TIER
 
 logger = logging.getLogger(__file__)
 
@@ -210,7 +211,10 @@ def get_trajectories(
     output_dir: str = ".",
     verbose: bool = False,
     num_examples: int = 1,
-    max_workers: int | None = None
+    max_workers: int | None = None,
+    enable_rate_limit: bool = False,
+    rate_limit: int = 1000,
+    rate_limit_period: float = 300.0
 ):
     """Generate multiple agent trajectories across parameter combinations in parallel.
 
@@ -234,6 +238,9 @@ def get_trajectories(
         verbose: If True, print detailed logging during trajectory generation.
         num_examples: Number of different examples to generate per parameter combination.
         max_workers: Maximum number of parallel workers. If None, uses min(32, total_tasks).
+        enable_rate_limit: If True, enforce rate limiting on API requests.
+        rate_limit: Maximum number of requests allowed per rate_limit_period.
+        rate_limit_period: Time period in seconds for rate limiting (default: 300 = 5 minutes).
 
     Returns:
         None. Results are saved to individual JSON files in output_dir with format:
@@ -249,8 +256,19 @@ def get_trajectories(
                 f"{len(grid_complexities)} complexities, {len(model_names)} models, "
                 f"with {num_examples} examples each.")
 
+    # Create rate limiter if enabled
+    rate_limiter: RateLimiter | None = None
+    if enable_rate_limit:
+        rate_limiter = RateLimiter(rate_limit=rate_limit, period=rate_limit_period)
+        logger.info(f"Rate limiting enabled: {rate_limit} requests per {rate_limit_period} seconds "
+                   f"({rate_limit/rate_limit_period:.2f} requests/second)")
+
     def _generate_single_task(params: tuple) -> dict:
         """Generate a single trajectory for given parameters."""
+        # Acquire rate limit token if enabled
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+
         grid_size, grid_complexity, model_name, example_id = params
         task_seed = seed + example_id
 
@@ -288,6 +306,16 @@ def get_trajectories(
     # Set default max_workers if not specified
     if max_workers is None:
         max_workers = min(32, total_tasks)
+
+    # Adjust max_workers based on rate limit to avoid excessive idle workers
+    if enable_rate_limit and rate_limiter is not None:
+        # Calculate the sustainable number of workers based on request rate
+        # If each task takes at least 1 second, don't exceed the rate limit per second
+        sustainable_workers = min(max_workers, int(rate_limiter.tokens_per_second * 2))
+        if sustainable_workers < max_workers:
+            logger.info(f"Adjusting max_workers from {max_workers} to {sustainable_workers} "
+                       f"based on rate limit ({rate_limiter.tokens_per_second:.2f} req/sec)")
+            max_workers = sustainable_workers
 
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
