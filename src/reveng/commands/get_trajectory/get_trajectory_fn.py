@@ -10,13 +10,25 @@ from pathlib import Path
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from reveng.agents.llm_agent import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.wrappers.text_obs_wrapper import FullObservabilityTextWrapper
+from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
+from reveng.environment_generator.wrappers.text_obs_wrapper import (
+    FullObservabilityTextWrapper,
+)
 
-from reveng.commands.get_trajectory.get_trajectory_utils import generate_trajectory, to_dic_list, annotate_output_tokens
+from reveng.commands.get_trajectory.get_trajectory_utils import (
+    generate_trajectory,
+    to_dic_list,
+    annotate_output_tokens,
+)
 from reveng.commands.get_trajectory.compact_json_encoder import CompactJSONEncoder
-from reveng.commands.get_trajectory.rate_limiter import RateLimiter, RateLimitInfo, TOGETHER_AI_FREE_TIER
+from reveng.commands.get_trajectory.rate_limiter import (
+    RateLimiter,
+    RateLimitInfo,
+    TOGETHER_AI_FREE_TIER,
+)
 
 logger = logging.getLogger(__file__)
+
 
 def get_trajectory(
     grid_size: int = 5,
@@ -31,7 +43,7 @@ def get_trajectory(
     model_name: str = "together_ai/openai/gpt-oss-20b",
     observation_placeholders: list[str] = ["grid_state"],
     output_path: str = "get_trajectory_example_output.json",
-    verbose: bool = False
+    verbose: bool = False,
 ):
     """Generate an agent trajectory in a 2D navigation environment and save detailed results to JSON.
 
@@ -88,9 +100,9 @@ def get_trajectory(
             "temperature": temperature,
             "top_p": top_p,
             "reasoning_effort": reasoning_effort,
-            "seed": seed
+            "seed": seed,
         },
-        verbose=verbose
+        verbose=verbose,
     )
 
     grid_params = {}
@@ -100,7 +112,9 @@ def get_trajectory(
     grid_params["grid_complexity"] = grid_complexity
     grid_params["fully_observable"] = True
     grid_params["astar_distance"] = traj.traj_metadata["astar_distance"]
-    grid_params["agent_start_coordinates"] = traj.traj_metadata["agent_start_coordinates"]
+    grid_params["agent_start_coordinates"] = traj.traj_metadata[
+        "agent_start_coordinates"
+    ]
     grid_params["goal_coordinates"] = traj.traj_metadata["goal_coordinates"]
     grid_params["legend"] = base_env.grid_cells
 
@@ -143,12 +157,19 @@ def get_trajectory(
     for i in range(start_raw_prefix_idx):
         prompt["prompt_prefix_tokens"][i]["token_groups"] += ["template"]
     prompt["prompt_prefix_n_tokens"] = len(prompt["prompt_prefix_tokens"])
-    prompt["prompt_placeholder_tokens"] = to_dic_list(observation_placeholder, tokenizer, groups=["prompt", "placeholder"])
+    prompt["prompt_placeholder_tokens"] = to_dic_list(
+        observation_placeholder, tokenizer, groups=["prompt", "placeholder"]
+    )
     prompt["prompt_placeholder_n_tokens"] = len(prompt["prompt_placeholder_tokens"])
     prompt["prompt_suffix_tokens"] = to_dic_list(suffix, tokenizer)
     raw_suffix_tokens = to_dic_list(raw_suffix, tokenizer)
-    start_raw_suffix_idx = len(prompt["prompt_suffix_tokens"]) - len(raw_suffix_tokens) + 1
-    for i in range(len(prompt["prompt_suffix_tokens"]) - start_raw_suffix_idx, len(prompt["prompt_suffix_tokens"]) - 1):
+    start_raw_suffix_idx = (
+        len(prompt["prompt_suffix_tokens"]) - len(raw_suffix_tokens) + 1
+    )
+    for i in range(
+        len(prompt["prompt_suffix_tokens"]) - start_raw_suffix_idx,
+        len(prompt["prompt_suffix_tokens"]) - 1,
+    ):
         prompt["prompt_suffix_tokens"][i]["token_groups"] += ["template"]
     prompt["prompt_suffix_n_tokens"] = len(prompt["prompt_suffix_tokens"])
 
@@ -158,39 +179,49 @@ def get_trajectory(
         step_dic = {}
         step_dic["step_id"] = step_id
         step_dic["grid_state"] = traj_step.observation.split("\n")
-        step_dic["grid_state_tokens"] = to_dic_list(traj_step.observation, tokenizer, groups=["prompt", "grid_state"])
+        step_dic["grid_state_tokens"] = to_dic_list(
+            traj_step.observation, tokenizer, groups=["prompt", "grid_state"]
+        )
         step_dic["grid_state_n_tokens"] = len(step_dic["grid_state_tokens"])
 
         for i, t in enumerate(step_dic["grid_state_tokens"]):
             if any(sym in t["token"] for sym in grid_symbols):
                 step_dic["grid_state_tokens"][i]["token_groups"] += ["grid_tile"]
-        
+
         step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
         step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
         step_dic["agent_action"] = traj_step.metadata["action"]
 
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
-        step_dic["output_tokens"] = to_dic_list(step_dic["output_text"], tokenizer, groups=["output"])
+        step_dic["output_tokens"] = to_dic_list(
+            step_dic["output_text"], tokenizer, groups=["output"]
+        )
         step_dic["output_n_tokens"] = len(step_dic["output_tokens"])
-        step_dic["output_tokens"] = annotate_output_tokens(model_name, step_dic["output_tokens"])
-        
+        step_dic["output_tokens"] = annotate_output_tokens(
+            model_name, step_dic["output_tokens"]
+        )
+
         for i, t in enumerate(step_dic["output_tokens"]):
-            if "top_logprobs" not in traj_step.metadata["logprobs"][i] or "template" in t["token_groups"]:
+            if (
+                "top_logprobs" not in traj_step.metadata["logprobs"][i]
+                or "template" in t["token_groups"]
+            ):
                 continue
             curr_probs = {}
             for logprob_dic in traj_step.metadata["logprobs"][i]["top_logprobs"]:
-                curr_probs[logprob_dic["token"]] = np.round(np.exp(logprob_dic["logprob"]), 4)
+                curr_probs[logprob_dic["token"]] = np.round(
+                    np.exp(logprob_dic["logprob"]), 4
+                )
             step_dic["output_tokens"][i]["probabilities"] = curr_probs
 
         steps.append(step_dic)
-
 
     out = {
         "grid_params": grid_params,
         "model_params": model_params,
         "prompt": prompt,
-        "steps": steps
+        "steps": steps,
     }
     with open(output_path, "w") as f:
         json.dump(out, f, cls=CompactJSONEncoder, ensure_ascii=False, indent=4)
@@ -214,7 +245,7 @@ def get_trajectories(
     max_workers: int | None = None,
     enable_rate_limit: bool = False,
     rate_limit: int = 1000,
-    rate_limit_period: float = 300.0
+    rate_limit_period: float = 300.0,
 ):
     """Generate multiple agent trajectories across parameter combinations in parallel.
 
@@ -249,19 +280,25 @@ def get_trajectories(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # Generate all parameter combinations
-    all_combinations = list(product(grid_sizes, grid_complexities, model_names, range(num_examples)))
+    all_combinations = list(
+        product(grid_sizes, grid_complexities, model_names, range(num_examples))
+    )
 
     total_tasks = len(all_combinations)
-    logger.info(f"Generating {total_tasks} trajectories across {len(grid_sizes)} grid sizes, "
-                f"{len(grid_complexities)} complexities, {len(model_names)} models, "
-                f"with {num_examples} examples each.")
+    logger.info(
+        f"Generating {total_tasks} trajectories across {len(grid_sizes)} grid sizes, "
+        f"{len(grid_complexities)} complexities, {len(model_names)} models, "
+        f"with {num_examples} examples each."
+    )
 
     # Create rate limiter if enabled
     rate_limiter: RateLimiter | None = None
     if enable_rate_limit:
         rate_limiter = RateLimiter(rate_limit=rate_limit, period=rate_limit_period)
-        logger.info(f"Rate limiting enabled: {rate_limit} requests per {rate_limit_period} seconds "
-                   f"({rate_limit/rate_limit_period:.2f} requests/second)")
+        logger.info(
+            f"Rate limiting enabled: {rate_limit} requests per {rate_limit_period} seconds "
+            f"({rate_limit / rate_limit_period:.2f} requests/second)"
+        )
 
     def _generate_single_task(params: tuple) -> dict:
         """Generate a single trajectory for given parameters."""
@@ -275,12 +312,16 @@ def get_trajectories(
         # Sanitize model name for filename
         model_sanitized = model_name.replace("/", "_").replace(".", "_")
 
-        output_filename = f"{model_sanitized}_size{grid_size}_comp{grid_complexity}_{example_id}.json"
+        output_filename = (
+            f"{model_sanitized}_size{grid_size}_comp{grid_complexity}_{example_id}.json"
+        )
         output_path = str(Path(output_dir) / output_filename)
 
         if verbose:
-            logger.info(f"Starting task: model={model_name}, size={grid_size}, "
-                       f"complexity={grid_complexity}, example={example_id}, seed={task_seed}")
+            logger.info(
+                f"Starting task: model={model_name}, size={grid_size}, "
+                f"complexity={grid_complexity}, example={example_id}, seed={task_seed}"
+            )
 
         try:
             get_trajectory(
@@ -296,7 +337,7 @@ def get_trajectories(
                 model_name=model_name,
                 observation_placeholders=observation_placeholders,
                 output_path=output_path,
-                verbose=verbose
+                verbose=verbose,
             )
             return {"status": "success", "output_path": output_path, "params": params}
         except Exception as e:
@@ -313,13 +354,18 @@ def get_trajectories(
         # If each task takes at least 1 second, don't exceed the rate limit per second
         sustainable_workers = min(max_workers, int(rate_limiter.tokens_per_second * 2))
         if sustainable_workers < max_workers:
-            logger.info(f"Adjusting max_workers from {max_workers} to {sustainable_workers} "
-                       f"based on rate limit ({rate_limiter.tokens_per_second:.2f} req/sec)")
+            logger.info(
+                f"Adjusting max_workers from {max_workers} to {sustainable_workers} "
+                f"based on rate limit ({rate_limiter.tokens_per_second:.2f} req/sec)"
+            )
             max_workers = sustainable_workers
 
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_generate_single_task, combo): combo for combo in all_combinations}
+        futures = {
+            executor.submit(_generate_single_task, combo): combo
+            for combo in all_combinations
+        }
 
         for future in as_completed(futures):
             combo = futures[future]
@@ -329,7 +375,391 @@ def get_trajectories(
                 if result["status"] == "success":
                     logger.info(f"Completed: {result['output_path']}")
                 else:
-                    logger.error(f"Failed for {combo}: {result.get('error', 'Unknown error')}")
+                    logger.error(
+                        f"Failed for {combo}: {result.get('error', 'Unknown error')}"
+                    )
+            except Exception as e:
+                logger.error(f"Exception for {combo}: {e}")
+                results.append({"status": "error", "error": str(e), "params": combo})
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    logger.info(f"Completed {success_count}/{total_tasks} trajectories successfully.")
+
+
+def get_trajectory_key_door_env(
+    rooms_per_side: int = 2,
+    add_door_key: bool = True,
+    max_steps_per_trajectory: int = 30,
+    max_tokens: int = 10000,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
+    top_logprobs: int = 5,
+    seed: int = 42,
+    reasoning_effort: Literal["low", "medium", "high"] = "low",
+    model_name: str = "together_ai/openai/gpt-oss-20b",
+    template_name: str = "grid_full_observability_instrumental_goals.j2",
+    observation_placeholders: list[str] = ["grid_state"],
+    output_path: str = "get_trajectory_key_door_example_output.json",
+    verbose: bool = False,
+):
+    """Generate an agent trajectory in a rooms environment with key-door mechanics and save detailed results to JSON.
+
+    Creates a RoomsMinigrid environment with optional key-door obstacles, runs an LLM agent to generate a trajectory,
+    and saves comprehensive information including grid parameters, model parameters, prompt template with token-level
+    analysis, and trajectory steps with token probabilities.
+
+    Args:
+        rooms_per_side: Number of rooms per side (2 for 2x2=4 rooms, 3 for 3x3=9 rooms).
+        add_door_key: Whether to include a locked door and key in the environment.
+        max_steps_per_trajectory: Maximum number of steps to generate in the trajectory.
+        max_tokens: Maximum tokens for model generation per step.
+        temperature: Sampling temperature for the model (higher = more random).
+        top_p: Nucleus sampling parameter (cumulative probability threshold).
+        top_logprobs: Number of top log probabilities to return for each token.
+        seed: Random seed for reproducibility.
+        reasoning_effort: Reasoning effort level for the model ("low", "medium", or "high").
+        model_name: Name of the model in format "provider/model_id".
+        template_name: Name of the Jinja2 template file to use for prompts.
+        observation_placeholders: List of placeholder names in the prompt template.
+        output_path: Path to save the output JSON file.
+        verbose: If True, print detailed logging during trajectory generation.
+
+    Returns:
+        None. Results are saved to the specified output_path.
+
+    The output JSON structure follows the format expected by the trace viewer: https://github.com/SPAR-Telos/interp/tree/trace-viewer
+        - grid_params: Grid configuration (size, rooms_per_side, add_door_key, start/goal positions, A* distance, legend)
+        - model_params: Model configuration (name, provider, sampling parameters, seed)
+        - prompt: Prompt template with token-level annotations (prefix, suffix, placeholder tokens)
+        - steps: List of trajectory steps, each containing:
+            - step_id: Step number
+            - grid_state: Grid visualization as list of strings
+            - grid_state_tokens: Tokenized grid state with annotations
+            - prompt_suffix_tokens: Tokenized prompt suffix
+            - agent_action: Action taken by the agent
+            - output_text: Model's generated output text
+            - output_tokens: Tokenized output with probabilities and annotations
+    """
+    # Create RoomsMinigrid environment
+    base_env_unwrapped = RoomsMinigridEnv(
+        add_door_key=add_door_key,
+        max_steps=max_steps_per_trajectory,
+        rooms_per_side=rooms_per_side,
+    )
+    base_env = FullObservabilityTextWrapper(base_env_unwrapped)
+
+    # Get template path
+    template_path = Path(__file__).parent.parent.parent / "templates" / template_name
+
+    # Create agent with custom template
+    agent = LLMAgent(model_name=model_name, template_path=template_path)
+    model_id = "/".join(model_name.split("/")[1:])
+    provider = model_name.split("/")[0]
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    # Reset environment to generate initial state
+    base_env.reset()
+
+    traj = generate_trajectory(
+        env=base_env,
+        agent=agent,
+        max_steps_per_trajectory=max_steps_per_trajectory,
+        generation_kwargs={
+            "top_logprobs": top_logprobs,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "reasoning_effort": reasoning_effort,
+            "seed": seed,
+        },
+        verbose=verbose,
+    )
+
+    grid_params = {}
+    grid_size = base_env_unwrapped.width
+    grid_params["grid_width"] = grid_size
+    grid_params["grid_height"] = grid_size
+    grid_params["rooms_per_side"] = rooms_per_side
+    grid_params["add_door_key"] = add_door_key
+    grid_params["fully_observable"] = True
+    grid_params["astar_distance"] = traj.traj_metadata["astar_distance"]
+    grid_params["agent_start_coordinates"] = traj.traj_metadata[
+        "agent_start_coordinates"
+    ]
+    grid_params["goal_coordinates"] = traj.traj_metadata["goal_coordinates"]
+    grid_params["legend"] = base_env.grid_cells
+
+    grid_symbols = [cell["symbol"] for cell in base_env.grid_cells.values()]
+
+    model_params = {}
+    model_params["model_id"] = model_id
+    model_params["provider"] = provider
+    model_params["interface"] = "litellm"
+    model_params["template_name"] = template_name
+    model_params["n_interactions_in_context"] = 0
+    model_params["max_tokens"] = max_tokens
+    model_params["max_steps_per_trajectory"] = max_steps_per_trajectory
+    model_params["temperature"] = temperature
+    model_params["reasoning_effort"] = reasoning_effort
+    model_params["top_p"] = top_p
+    model_params["top_logprobs"] = top_logprobs
+    model_params["seed"] = seed
+
+    prompt = {}
+
+    # For key-door template, we need both grid_state and carrying_key placeholders
+    render_kwargs = {"grid_state": "{{grid_state}}", "carrying_key": "{{carrying_key}}"}
+    template = agent._template.render(**render_kwargs)
+    formatted_template: str = tokenizer.apply_chat_template(
+        [{"role": "user", "content": template}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    template_tokens = to_dic_list(formatted_template, tokenizer)
+
+    # Handle the primary observation placeholder (grid_state)
+    observation_placeholder = "{{" + observation_placeholders[0] + "}}"
+    prefix, suffix = formatted_template.split(observation_placeholder)
+    raw_prefix, raw_suffix = template.split(observation_placeholder)
+    prompt["prompt_template"] = formatted_template
+    prompt["prompt_template_n_tokens"] = len(template_tokens)
+    prompt["prompt_prefix_tokens"] = to_dic_list(prefix, tokenizer)
+    raw_prefix_tokens = to_dic_list(raw_prefix, tokenizer)
+    start_raw_prefix_idx = len(prompt["prompt_prefix_tokens"]) - len(raw_prefix_tokens)
+    for i in range(start_raw_prefix_idx):
+        prompt["prompt_prefix_tokens"][i]["token_groups"] += ["template"]
+    prompt["prompt_prefix_n_tokens"] = len(prompt["prompt_prefix_tokens"])
+    prompt["prompt_placeholder_tokens"] = to_dic_list(
+        observation_placeholder, tokenizer, groups=["prompt", "placeholder"]
+    )
+    prompt["prompt_placeholder_n_tokens"] = len(prompt["prompt_placeholder_tokens"])
+    prompt["prompt_suffix_tokens"] = to_dic_list(suffix, tokenizer)
+    raw_suffix_tokens = to_dic_list(raw_suffix, tokenizer)
+    start_raw_suffix_idx = (
+        len(prompt["prompt_suffix_tokens"]) - len(raw_suffix_tokens) + 1
+    )
+    for i in range(
+        len(prompt["prompt_suffix_tokens"]) - start_raw_suffix_idx,
+        len(prompt["prompt_suffix_tokens"]) - 1,
+    ):
+        prompt["prompt_suffix_tokens"][i]["token_groups"] += ["template"]
+    prompt["prompt_suffix_n_tokens"] = len(prompt["prompt_suffix_tokens"])
+
+    steps = []
+
+    for step_id, traj_step in enumerate(traj.steps):
+        step_dic = {}
+        step_dic["step_id"] = step_id
+        step_dic["grid_state"] = traj_step.observation.split("\n")
+        step_dic["grid_state_tokens"] = to_dic_list(
+            traj_step.observation, tokenizer, groups=["prompt", "grid_state"]
+        )
+        step_dic["grid_state_n_tokens"] = len(step_dic["grid_state_tokens"])
+
+        for i, t in enumerate(step_dic["grid_state_tokens"]):
+            if any(sym in t["token"] for sym in grid_symbols):
+                step_dic["grid_state_tokens"][i]["token_groups"] += ["grid_tile"]
+
+        step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
+        step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
+        step_dic["agent_action"] = traj_step.metadata["action"]
+        step_dic["carrying_key"] = traj_step.metadata.get("carrying_key", False)
+
+        out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
+        step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
+        step_dic["output_tokens"] = to_dic_list(
+            step_dic["output_text"], tokenizer, groups=["output"]
+        )
+        step_dic["output_n_tokens"] = len(step_dic["output_tokens"])
+        step_dic["output_tokens"] = annotate_output_tokens(
+            model_name, step_dic["output_tokens"]
+        )
+
+        for i, t in enumerate(step_dic["output_tokens"]):
+            if (
+                "top_logprobs" not in traj_step.metadata["logprobs"][i]
+                or "template" in t["token_groups"]
+            ):
+                continue
+            curr_probs = {}
+            for logprob_dic in traj_step.metadata["logprobs"][i]["top_logprobs"]:
+                curr_probs[logprob_dic["token"]] = np.round(
+                    np.exp(logprob_dic["logprob"]), 4
+                )
+            step_dic["output_tokens"][i]["probabilities"] = curr_probs
+
+        steps.append(step_dic)
+
+    out = {
+        "grid_params": grid_params,
+        "model_params": model_params,
+        "prompt": prompt,
+        "steps": steps,
+    }
+    with open(output_path, "w") as f:
+        json.dump(out, f, cls=CompactJSONEncoder, ensure_ascii=False, indent=4)
+
+
+def get_trajectories_key_door_env(
+    rooms_per_side_options: list[int] = [2],
+    add_door_key_options: list[bool] = [True],
+    max_steps_per_trajectory: int = 30,
+    max_tokens: int = 10000,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
+    top_logprobs: int = 5,
+    seed: int = 42,
+    reasoning_effort: Literal["low", "medium", "high"] = "low",
+    model_names: list[str] = ["together_ai/openai/gpt-oss-20b"],
+    template_name: str = "grid_full_observability_instrumental_goals.j2",
+    observation_placeholders: list[str] = ["grid_state"],
+    output_dir: str = ".",
+    verbose: bool = False,
+    num_examples: int = 1,
+    max_workers: int | None = None,
+    enable_rate_limit: bool = False,
+    rate_limit: int = 1000,
+    rate_limit_period: float = 300.0,
+):
+    """Generate multiple agent trajectories in rooms environments with key-door mechanics across parameter combinations in parallel.
+
+    Creates trajectories for all combinations of rooms_per_side, add_door_key, and model_names,
+    running the specified number of examples per combination in parallel. Each trajectory is saved
+    to a separate JSON file with a name based on the parameters.
+
+    Args:
+        rooms_per_side_options: List of rooms_per_side values to use (2 for 2x2=4 rooms, 3 for 3x3=9 rooms).
+        add_door_key_options: List of booleans indicating whether to include locked door and key.
+        max_steps_per_trajectory: Maximum number of steps to generate in each trajectory.
+        max_tokens: Maximum tokens for model generation per step.
+        temperature: Sampling temperature for the model (higher = more random).
+        top_p: Nucleus sampling parameter (cumulative probability threshold).
+        top_logprobs: Number of top log probabilities to return for each token.
+        seed: Base random seed for reproducibility. Each example uses seed + example_id.
+        reasoning_effort: Reasoning effort level for the model ("low", "medium", or "high").
+        model_names: List of model names in format "provider/model_id".
+        template_name: Name of the Jinja2 template file to use for prompts.
+        observation_placeholders: List of placeholder names in the prompt template.
+        output_dir: Directory to save the output JSON files.
+        verbose: If True, print detailed logging during trajectory generation.
+        num_examples: Number of different examples to generate per parameter combination.
+        max_workers: Maximum number of parallel workers. If None, uses min(32, total_tasks).
+        enable_rate_limit: If True, enforce rate limiting on API requests.
+        rate_limit: Maximum number of requests allowed per rate_limit_period.
+        rate_limit_period: Time period in seconds for rate limiting (default: 300 = 5 minutes).
+
+    Returns:
+        None. Results are saved to individual JSON files in output_dir with format:
+        {model_sanitized}_rooms{rooms_per_side}_door{add_door_key}_{example_id}.json
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Generate all parameter combinations
+    all_combinations = list(
+        product(
+            rooms_per_side_options,
+            add_door_key_options,
+            model_names,
+            range(num_examples),
+        )
+    )
+
+    total_tasks = len(all_combinations)
+    logger.info(
+        f"Generating {total_tasks} trajectories across {len(rooms_per_side_options)} rooms_per_side options, "
+        f"{len(add_door_key_options)} door/key configs, {len(model_names)} models, "
+        f"with {num_examples} examples each."
+    )
+
+    # Create rate limiter if enabled
+    rate_limiter: RateLimiter | None = None
+    if enable_rate_limit:
+        rate_limiter = RateLimiter(rate_limit=rate_limit, period=rate_limit_period)
+        logger.info(
+            f"Rate limiting enabled: {rate_limit} requests per {rate_limit_period} seconds "
+            f"({rate_limit / rate_limit_period:.2f} requests/second)"
+        )
+
+    def _generate_single_task(params: tuple) -> dict:
+        """Generate a single trajectory for given parameters."""
+        # Acquire rate limit token if enabled
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+
+        rooms_per_side, add_door_key, model_name, example_id = params
+        task_seed = seed + example_id
+
+        # Sanitize model name for filename
+        model_sanitized = model_name.replace("/", "_").replace(".", "_")
+
+        door_key_str = "doorkey" if add_door_key else "nodoor"
+        output_filename = (
+            f"{model_sanitized}_rooms{rooms_per_side}_{door_key_str}_{example_id}.json"
+        )
+        output_path = str(Path(output_dir) / output_filename)
+
+        if verbose:
+            logger.info(
+                f"Starting task: model={model_name}, rooms_per_side={rooms_per_side}, "
+                f"add_door_key={add_door_key}, example={example_id}, seed={task_seed}"
+            )
+
+        try:
+            get_trajectory_key_door_env(
+                rooms_per_side=rooms_per_side,
+                add_door_key=add_door_key,
+                max_steps_per_trajectory=max_steps_per_trajectory,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_logprobs=top_logprobs,
+                seed=task_seed,
+                reasoning_effort=reasoning_effort,
+                model_name=model_name,
+                template_name=template_name,
+                observation_placeholders=observation_placeholders,
+                output_path=output_path,
+                verbose=verbose,
+            )
+            return {"status": "success", "output_path": output_path, "params": params}
+        except Exception as e:
+            logger.error(f"Failed to generate trajectory for {params}: {e}")
+            return {"status": "error", "error": str(e), "params": params}
+
+    # Set default max_workers if not specified
+    if max_workers is None:
+        max_workers = min(32, total_tasks)
+
+    # Adjust max_workers based on rate limit to avoid excessive idle workers
+    if enable_rate_limit and rate_limiter is not None:
+        # Calculate the sustainable number of workers based on request rate
+        # If each task takes at least 1 second, don't exceed the rate limit per second
+        sustainable_workers = min(max_workers, int(rate_limiter.tokens_per_second * 2))
+        if sustainable_workers < max_workers:
+            logger.info(
+                f"Adjusting max_workers from {max_workers} to {sustainable_workers} "
+                f"based on rate limit ({rate_limiter.tokens_per_second:.2f} req/sec)"
+            )
+            max_workers = sustainable_workers
+
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_generate_single_task, combo): combo
+            for combo in all_combinations
+        }
+
+        for future in as_completed(futures):
+            combo = futures[future]
+            try:
+                result = future.result()
+                results.append(result)
+                if result["status"] == "success":
+                    logger.info(f"Completed: {result['output_path']}")
+                else:
+                    logger.error(
+                        f"Failed for {combo}: {result.get('error', 'Unknown error')}"
+                    )
             except Exception as e:
                 logger.error(f"Exception for {combo}: {e}")
                 results.append({"status": "error", "error": str(e), "params": combo})

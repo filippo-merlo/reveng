@@ -13,9 +13,12 @@ from reveng.agents.alpha_start_agent import AlphaStarAgent
 from reveng.agents.llm_agent import LLMAgent
 from reveng.datatypes import Step, Trajectory
 from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
-from reveng.environment_generator.wrappers.text_obs_wrapper import FullObservabilityTextWrapper
+from reveng.environment_generator.wrappers.text_obs_wrapper import (
+    FullObservabilityTextWrapper,
+)
 
 logger = logging.getLogger(__file__)
+
 
 @retry(
     stop=stop_after_attempt(5),
@@ -106,7 +109,7 @@ def get_astar_distance(env, observation):
     return len(trajectory.steps)
 
 
-def to_dic_list(txt, tokenizer, groups = ["prompt"], start_idx = 0):
+def to_dic_list(txt, tokenizer, groups=["prompt"], start_idx=0):
     """Convert text to a list of token dictionaries with metadata.
 
     Tokenizes the input text and creates a structured representation where each token
@@ -130,12 +133,9 @@ def to_dic_list(txt, tokenizer, groups = ["prompt"], start_idx = 0):
 
     out = []
     for i, (t, id) in enumerate(zip(tokens, ids), start=start_idx):
-        out.append({
-            "id": i,
-            "token": t,
-            "token_id": id,
-            "token_groups": deepcopy(groups)
-        })
+        out.append(
+            {"id": i, "token": t, "token_id": id, "token_groups": deepcopy(groups)}
+        )
     return out
 
 
@@ -159,45 +159,53 @@ def annotate_output_tokens(model_name: str, output_tokens):
         NotImplementedError: If the model is not supported for annotation.
     """
     if "openai/gpt-oss-20b" in model_name:
-        template_special_tokens = {'<|channel|>', '<|message|>', '<|end|>', '<|start|>', '<|return|>'}
-    
+        template_special_tokens = {
+            "<|channel|>",
+            "<|message|>",
+            "<|end|>",
+            "<|start|>",
+            "<|return|>",
+        }
+
         in_template_mode = True
         current_section = None
-        
+
         for token in output_tokens:
-            token_str = token['token']
-            
+            token_str = token["token"]
+
             if token_str in template_special_tokens:
-                token['token_groups'].append('template')
-                
-                if token_str == '<|end|>':
+                token["token_groups"].append("template")
+
+                if token_str == "<|end|>":
                     in_template_mode = True
-                elif token_str == '<|message|>':
+                elif token_str == "<|message|>":
                     in_template_mode = False
-                elif token_str == '<|return|>':
+                elif token_str == "<|return|>":
                     current_section = None
-            
+
             elif in_template_mode:
                 # Template mode: tokens like 'analysis', 'final', 'assistant'
-                token['token_groups'].append('template')
-                
+                token["token_groups"].append("template")
+
                 # Track which section we're about to enter
-                if token_str in ['analysis', 'final']:
+                if token_str in ["analysis", "final"]:
                     current_section = token_str
-            
+
             else:
                 # Content mode
                 if current_section:
-                    token['token_groups'].append(current_section)
-                
+                    token["token_groups"].append(current_section)
+
                 # Check for action words (case-insensitive, ignoring Ġ and Ċ)
-                clean_token = token_str.replace('Ġ', '').replace('Ċ', '')
-                if re.match(r'^(up|down|left|right)$', clean_token, re.IGNORECASE):
-                    token['token_groups'].append('action')
-        
+                clean_token = token_str.replace("Ġ", "").replace("Ċ", "")
+                if re.match(r"^(up|down|left|right)$", clean_token, re.IGNORECASE):
+                    token["token_groups"].append("action")
+
         return output_tokens
     else:
-        raise NotImplementedError(f"The selected model {model_name} is not supported for output annotation.")
+        raise NotImplementedError(
+            f"The selected model {model_name} is not supported for output annotation."
+        )
 
 
 def generate_trajectory(
@@ -206,7 +214,7 @@ def generate_trajectory(
     max_steps_per_trajectory: int,
     generation_kwargs: dict = {},
     metadata: dict = {},
-    verbose: bool = False
+    verbose: bool = False,
 ):
     """Generate a complete agent trajectory in the environment.
 
@@ -252,7 +260,7 @@ def generate_trajectory(
             and step_count >= max_steps_per_trajectory
         ):
             break
-        
+
         unwrapped_env = getattr(env, "unwrapped", env)
         prompt = agent._generate_action_query_prompt(unwrapped_env)
         if verbose:
@@ -262,11 +270,13 @@ def generate_trajectory(
             model=agent.model_name,
             messages=[{"role": "user", "content": prompt}],
             logprobs=True,
-            **generation_kwargs
+            **generation_kwargs,
         )
         final_output = full_output.choices[0].message.content
         action, action_name = parse_action(final_output)
-        logprobs_serialized = agent._finalize_cost_and_logprobs(cost, full_output, generation_kwargs.get("top_logprobs") is not None)
+        logprobs_serialized = agent._finalize_cost_and_logprobs(
+            cost, full_output, generation_kwargs.get("top_logprobs") is not None
+        )
 
         if verbose:
             print("Output text:", final_output)
@@ -274,6 +284,14 @@ def generate_trajectory(
 
         metadata = agent._build_base_metadata(action, cost, logprobs_serialized)
         metadata["action"] = action_name
+
+        # Capture carrying_key status before taking the step
+        base_env = getattr(env, "unwrapped", env)
+        carrying_key = False
+        if hasattr(base_env, "carrying") and base_env.carrying is not None:
+            carrying_key = base_env.carrying.type == "key"
+        metadata["carrying_key"] = carrying_key
+
         next_obs, reward, terminated, truncated, _ = env.step(action)
         total_reward += float(reward)
 
