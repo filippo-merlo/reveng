@@ -689,7 +689,9 @@ def get_trajectories_key_door_env(
         if rate_limiter is not None:
             rate_limiter.acquire()
 
-        rooms_per_side, add_door_key, remove_door_from_env, model_name, example_id = params
+        rooms_per_side, add_door_key, remove_door_from_env, model_name, example_id = (
+            params
+        )
         task_seed = seed + example_id
 
         # Sanitize model name for filename
@@ -697,9 +699,7 @@ def get_trajectories_key_door_env(
 
         door_key_str = "doorkey" if add_door_key else "nodoor"
         remove_door_str = "rmdoor" if remove_door_from_env else "keepdoor"
-        output_filename = (
-            f"{model_sanitized}_rooms{rooms_per_side}_{door_key_str}_{remove_door_str}_{example_id}.json"
-        )
+        output_filename = f"{model_sanitized}_rooms{rooms_per_side}_{door_key_str}_{remove_door_str}_{example_id}.json"
         output_path = str(Path(output_dir) / output_filename)
 
         if verbose:
