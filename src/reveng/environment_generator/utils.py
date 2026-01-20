@@ -122,6 +122,29 @@ def remove_doors_and_keys(env: MiniGridEnv) -> MiniGridEnv:
     return cloned_env
 
 
+def remove_door(env: MiniGridEnv) -> MiniGridEnv:
+    """
+    Create a copy of the environment with the door removed.
+
+    Args:
+        env: The environment to copy and modify
+
+    Returns:
+        A new environment instance with the door removed
+    """
+    # Clone the environment
+    cloned_env = clone_env(env)
+
+    # Remove any doors from the grid
+    for x in range(cloned_env.width):
+        for y in range(cloned_env.height):
+            cell = cloned_env.grid.get(x, y)
+            if cell is not None and cell.type == "door":
+                cloned_env.grid.set(x, y, None)
+
+    return cloned_env
+
+
 def remove_coin(env: MiniGridEnv) -> MiniGridEnv:
     """
     Create a copy of the environment with the coin removed.

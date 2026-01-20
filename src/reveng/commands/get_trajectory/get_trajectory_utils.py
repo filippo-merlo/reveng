@@ -16,6 +16,7 @@ from reveng.trajectory_generator.trajectory_generator import generate_one_trajec
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
+from reveng.environment_generator.utils import remove_door
 
 logger = logging.getLogger(__file__)
 
@@ -215,6 +216,7 @@ def generate_trajectory(
     generation_kwargs: dict = {},
     metadata: dict = {},
     verbose: bool = False,
+    remove_door_from_env: bool = False,
 ):
     """Generate a complete agent trajectory in the environment.
 
@@ -230,6 +232,7 @@ def generate_trajectory(
             (e.g., temperature, top_p, max_tokens, top_logprobs).
         metadata: Additional metadata to include (currently unused).
         verbose: If True, log detailed information during generation.
+        remove_door_from_env: If True, remove the door from the environment after reset (keeps the key).
 
     Returns:
         Trajectory: A Trajectory object containing:
@@ -246,6 +249,13 @@ def generate_trajectory(
     truncated = False
 
     observation, _ = env.reset()
+
+    # Remove the door after reset if requested
+    if remove_door_from_env:
+        env.unwrapped.grid = remove_door(env.unwrapped).grid
+        # Regenerate observation after modifying the grid
+        raw_obs = env.unwrapped.gen_obs()
+        observation = env.observation(raw_obs)
 
     traj_metadata = {}
     start_pos = tuple(int(x) for x in env.unwrapped.agent_pos)

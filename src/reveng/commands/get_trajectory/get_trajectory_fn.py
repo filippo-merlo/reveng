@@ -389,6 +389,7 @@ def get_trajectories(
 def get_trajectory_key_door_env(
     rooms_per_side: int = 2,
     add_door_key: bool = True,
+    remove_door_from_env: bool = False,
     max_steps_per_trajectory: int = 30,
     max_tokens: int = 10000,
     temperature: float = 0.7,
@@ -411,6 +412,7 @@ def get_trajectory_key_door_env(
     Args:
         rooms_per_side: Number of rooms per side (2 for 2x2=4 rooms, 3 for 3x3=9 rooms).
         add_door_key: Whether to include a locked door and key in the environment.
+        remove_door_from_env: If True, remove the door from the environment after reset (keeps the key).
         max_steps_per_trajectory: Maximum number of steps to generate in the trajectory.
         max_tokens: Maximum tokens for model generation per step.
         temperature: Sampling temperature for the model (higher = more random).
@@ -457,9 +459,6 @@ def get_trajectory_key_door_env(
     provider = model_name.split("/")[0]
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Reset environment to generate initial state
-    base_env.reset()
-
     traj = generate_trajectory(
         env=base_env,
         agent=agent,
@@ -473,6 +472,7 @@ def get_trajectory_key_door_env(
             "seed": seed,
         },
         verbose=verbose,
+        remove_door_from_env=remove_door_from_env,
     )
 
     grid_params = {}
@@ -603,6 +603,7 @@ def get_trajectory_key_door_env(
 def get_trajectories_key_door_env(
     rooms_per_side_options: list[int] = [2],
     add_door_key_options: list[bool] = [True],
+    remove_door_from_env_options: list[bool] = [False],
     max_steps_per_trajectory: int = 30,
     max_tokens: int = 10000,
     temperature: float = 0.7,
@@ -630,6 +631,7 @@ def get_trajectories_key_door_env(
     Args:
         rooms_per_side_options: List of rooms_per_side values to use (2 for 2x2=4 rooms, 3 for 3x3=9 rooms).
         add_door_key_options: List of booleans indicating whether to include locked door and key.
+        remove_door_from_env_options: List of booleans indicating whether to remove the door after reset (keeps the key).
         max_steps_per_trajectory: Maximum number of steps to generate in each trajectory.
         max_tokens: Maximum tokens for model generation per step.
         temperature: Sampling temperature for the model (higher = more random).
@@ -659,6 +661,7 @@ def get_trajectories_key_door_env(
         product(
             rooms_per_side_options,
             add_door_key_options,
+            remove_door_from_env_options,
             model_names,
             range(num_examples),
         )
@@ -686,28 +689,31 @@ def get_trajectories_key_door_env(
         if rate_limiter is not None:
             rate_limiter.acquire()
 
-        rooms_per_side, add_door_key, model_name, example_id = params
+        rooms_per_side, add_door_key, remove_door_from_env, model_name, example_id = params
         task_seed = seed + example_id
 
         # Sanitize model name for filename
         model_sanitized = model_name.replace("/", "_").replace(".", "_")
 
         door_key_str = "doorkey" if add_door_key else "nodoor"
+        remove_door_str = "rmdoor" if remove_door_from_env else "keepdoor"
         output_filename = (
-            f"{model_sanitized}_rooms{rooms_per_side}_{door_key_str}_{example_id}.json"
+            f"{model_sanitized}_rooms{rooms_per_side}_{door_key_str}_{remove_door_str}_{example_id}.json"
         )
         output_path = str(Path(output_dir) / output_filename)
 
         if verbose:
             logger.info(
                 f"Starting task: model={model_name}, rooms_per_side={rooms_per_side}, "
-                f"add_door_key={add_door_key}, example={example_id}, seed={task_seed}"
+                f"add_door_key={add_door_key}, remove_door_from_env={remove_door_from_env}, "
+                f"example={example_id}, seed={task_seed}"
             )
 
         try:
             get_trajectory_key_door_env(
                 rooms_per_side=rooms_per_side,
                 add_door_key=add_door_key,
+                remove_door_from_env=remove_door_from_env,
                 max_steps_per_trajectory=max_steps_per_trajectory,
                 max_tokens=max_tokens,
                 temperature=temperature,
