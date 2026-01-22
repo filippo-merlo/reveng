@@ -560,10 +560,29 @@ def get_trajectory_key_door_env(
             if any(sym in t["token"] for sym in grid_symbols):
                 step_dic["grid_state_tokens"][i]["token_groups"] += ["grid_tile"]
 
-        step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
+        # Render the suffix with the actual carrying_key value for this step
+        step_dic["carrying_key"] = traj_step.metadata.get("carrying_key", False)
+        carrying_key_placeholder = "{{carrying_key}}"
+        if carrying_key_placeholder in suffix:
+            # Replace the placeholder with the actual value
+            rendered_suffix = suffix.replace(
+                carrying_key_placeholder, str(step_dic["carrying_key"])
+            )
+            step_dic["prompt_suffix_tokens"] = to_dic_list(rendered_suffix, tokenizer)
+            # Mark template tokens appropriately
+            raw_suffix_tokens = to_dic_list(raw_suffix.replace(carrying_key_placeholder, str(step_dic["carrying_key"])), tokenizer)
+            start_raw_suffix_idx = (
+                len(step_dic["prompt_suffix_tokens"]) - len(raw_suffix_tokens) + 1
+            )
+            for i in range(
+                len(step_dic["prompt_suffix_tokens"]) - start_raw_suffix_idx,
+                len(step_dic["prompt_suffix_tokens"]) - 1,
+            ):
+                step_dic["prompt_suffix_tokens"][i]["token_groups"] += ["template"]
+        else:
+            step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
         step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
         step_dic["agent_action"] = traj_step.metadata["action"]
-        step_dic["carrying_key"] = traj_step.metadata.get("carrying_key", False)
 
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
