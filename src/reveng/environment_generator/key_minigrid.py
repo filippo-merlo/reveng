@@ -5,7 +5,7 @@ from minigrid.core.world_object import Goal, Wall, Key
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 
-class CoinMinigridEnv(Simple2DNavigationEnv):
+class Key2PathMinigridEnv(Simple2DNavigationEnv):
     """
     A maze environment with two equal-length paths from agent to goal.
     One path contains a key, creating an instrumental goal scenario.
@@ -406,7 +406,7 @@ if __name__ == "__main__":
     print("There are two equal-length paths to the goal")
     print("One path has a key - will you collect it?")
 
-    base_env = CoinMinigridEnv(size=9, render_mode="human")
+    base_env = Key2PathMinigridEnv(size=9, render_mode="human")
     env = FullObservabilityTextWrapper(base_env)
     env.reset()
 
