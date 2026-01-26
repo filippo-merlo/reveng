@@ -1,6 +1,14 @@
 import os
+
 import matplotlib.pyplot as plt
+
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from reveng.environment_generator.env_transformations import (
+    ReflectEnv,
+    RotateEnv,
+    StartGoalSwap,
+    TransposeEnv,
+)
 from reveng.environment_generator.key_minigrid import CoinMinigridEnv
 from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
 from reveng.environment_generator.utils import remove_door
@@ -280,9 +288,223 @@ def plot_complexity_0_4_with_text():
     print(f"\nAll figures saved to '{output_dir}/' directory")
 
 
+def plot_isotransforms(num_instances: int = 3, size: int = 11, complexity: float = 0.6):
+    """Generate and save figures showing the four main isotransforms for each environment instance.
+
+    Creates a figure for each instance showing the original environment and its four
+    isotransforms (Rotate, Reflect, Transpose, StartGoalSwap) side by side.
+
+    Args:
+        num_instances: Number of base environment instances to generate (default: 3)
+        size: Grid size for the environments (default: 11)
+        complexity: Maze complexity level (default: 0.6)
+    """
+    output_dir = "isotransform_plots"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define the four main isotransforms
+    transforms = [
+        ("Original", None),
+        ("Rotate (90° CCW)", RotateEnv()),
+        ("Reflect (Vertical)", ReflectEnv()),
+        ("Transpose", TransposeEnv()),
+        ("Start ⟷ Goal Swap", StartGoalSwap()),
+    ]
+
+    # Create base environment
+    base_env = Simple2DNavigationEnv(size=size, complexity=complexity)
+
+    for instance in range(num_instances):
+        print(
+            f"\nGenerating isotransform figure for instance {instance + 1}/{num_instances}..."
+        )
+
+        # Reset to get a new maze
+        base_env.reset()
+
+        # Create figure with subplots (1 row x 5 columns)
+        fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+
+        for idx, (title, transform) in enumerate(transforms):
+            ax = axes[idx]
+
+            if transform is None:
+                # Original environment
+                env_to_plot = base_env
+            else:
+                # Apply transformation
+                env_to_plot = transform.apply(base_env)
+
+            # Get the RGB frame
+            frame = env_to_plot.get_frame(highlight=False)
+
+            ax.imshow(frame)
+            ax.set_title(title, fontsize=12, fontweight="bold")
+            ax.axis("off")
+
+        plt.tight_layout()
+
+        # Save as high-resolution PDF
+        filename = os.path.join(
+            output_dir,
+            f"isotransforms_size{size}_complexity{complexity:.1f}_instance_{instance + 1}.pdf",
+        )
+        plt.savefig(
+            filename, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.1
+        )
+        print(f"Figure saved as '{filename}'")
+        plt.close()
+
+    base_env.close()
+    print(f"\nAll isotransform figures saved to '{output_dir}/' directory")
+
+
+def plot_isotransforms_individual(
+    num_instances: int = 3, size: int = 11, complexity: float = 0.6
+):
+    """Generate and save individual figures for each isotransform of each environment instance.
+
+    Creates separate PDF files for the original and each isotransform variant.
+
+    Args:
+        num_instances: Number of base environment instances to generate (default: 3)
+        size: Grid size for the environments (default: 11)
+        complexity: Maze complexity level (default: 0.6)
+    """
+    output_dir = "isotransform_plots_individual"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define the four main isotransforms
+    transforms = [
+        ("original", None),
+        ("rotate", RotateEnv()),
+        ("reflect", ReflectEnv()),
+        ("transpose", TransposeEnv()),
+        ("swap", StartGoalSwap()),
+    ]
+
+    # Create base environment
+    base_env = Simple2DNavigationEnv(size=size, complexity=complexity)
+
+    for instance in range(num_instances):
+        print(
+            f"\nGenerating individual isotransform figures for instance {instance + 1}/{num_instances}..."
+        )
+
+        # Reset to get a new maze
+        base_env.reset()
+
+        for transform_name, transform in transforms:
+            if transform is None:
+                # Original environment
+                env_to_plot = base_env
+            else:
+                # Apply transformation
+                env_to_plot = transform.apply(base_env)
+
+            # Get the RGB frame
+            frame = env_to_plot.get_frame(highlight=False)
+
+            # Plot the frame
+            plt.figure()
+            plt.imshow(frame)
+            plt.axis("off")
+            plt.tight_layout()
+
+            # Save as high-resolution PDF
+            filename = os.path.join(
+                output_dir,
+                f"size{size}_complexity{complexity:.1f}_instance{instance + 1}_{transform_name}.pdf",
+            )
+            plt.savefig(
+                filename, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0
+            )
+            print(f"  Saved: {filename}")
+            plt.close()
+
+    base_env.close()
+    print(f"\nAll individual isotransform figures saved to '{output_dir}/' directory")
+
+
+def plot_isotransforms_grid(
+    num_instances: int = 3, size: int = 11, complexity: float = 0.6
+):
+    """Generate a single grid figure showing all instances and their isotransforms.
+
+    Creates one large figure with instances as rows and transforms as columns.
+
+    Args:
+        num_instances: Number of base environment instances to generate (default: 3)
+        size: Grid size for the environments (default: 11)
+        complexity: Maze complexity level (default: 0.6)
+    """
+    output_dir = "isotransform_plots"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define the four main isotransforms
+    transforms = [
+        ("Original", None),
+        ("Rotate", RotateEnv()),
+        ("Reflect", ReflectEnv()),
+        ("Transpose", TransposeEnv()),
+        ("Swap", StartGoalSwap()),
+    ]
+
+    # Create figure with grid layout (instances x transforms)
+    fig, axes = plt.subplots(num_instances, 5, figsize=(20, 4 * num_instances))
+
+    # Handle case of single instance (axes won't be 2D)
+    if num_instances == 1:
+        axes = axes.reshape(1, -1)
+
+    # Create base environment
+    base_env = Simple2DNavigationEnv(size=size, complexity=complexity)
+
+    for instance in range(num_instances):
+        print(f"Generating row {instance + 1}/{num_instances}...")
+
+        # Reset to get a new maze
+        base_env.reset()
+
+        for col, (title, transform) in enumerate(transforms):
+            ax = axes[instance, col]
+
+            if transform is None:
+                env_to_plot = base_env
+            else:
+                env_to_plot = transform.apply(base_env)
+
+            frame = env_to_plot.get_frame(highlight=False)
+            ax.imshow(frame)
+            ax.axis("off")
+
+            # Only add column titles to the first row
+            if instance == 0:
+                ax.set_title(title, fontsize=14, fontweight="bold")
+
+            # Add row labels on the left
+            if col == 0:
+                ax.set_ylabel(
+                    f"Instance {instance + 1}", fontsize=12, fontweight="bold"
+                )
+
+    plt.tight_layout()
+
+    filename = os.path.join(
+        output_dir,
+        f"isotransforms_grid_size{size}_complexity{complexity:.1f}_{num_instances}instances.pdf",
+    )
+    plt.savefig(filename, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.1)
+    print(f"\nGrid figure saved as '{filename}'")
+    plt.close()
+
+    base_env.close()
+
+
 if __name__ == "__main__":
     # plot_complexities()
     # plot_multiple_mazes()
     # plot_multiple_environments()
     # plot_complexity_0_4_with_text()
+    plot_isotransforms_grid(num_instances=1, size=11, complexity=0.6)
     pass
