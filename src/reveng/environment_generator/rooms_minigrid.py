@@ -408,21 +408,106 @@ class RoomsMinigridEnv(Simple2DNavigationEnv):
             self.grid.set(wall_x, wall_y, None)
             return (wall_x, wall_y)
 
+    def set_env_from_list(self, grid_list):
+        """
+        Set the environment from a list of lists with strings.
+
+        Extends the base implementation to support doors and keys.
+
+        Args:
+            grid_list: List of lists where each string represents a cell.
+                Supported symbols:
+                'A' - Agent position
+                '#' - Wall
+                'G' - Goal
+                '_' - Empty space (open space)
+                'K' - Key (yellow)
+                'D' - Door (yellow, locked)
+                'O' - Door (yellow, open)
+
+        Example:
+            grid = [
+                ['#', '#', '#', '#', '#'],
+                ['#', 'A', '_', 'K', '#'],
+                ['#', '_', '#', 'D', '#'],
+                ['#', '_', '_', 'G', '#'],
+                ['#', '#', '#', '#', '#']
+            ]
+        """
+        height = len(grid_list)
+        width = len(grid_list[0]) if height > 0 else 0
+
+        # Recreate the grid with the specified dimensions
+        self.grid = Grid(width, height)
+
+        agent_pos = None
+        goal_pos = None
+
+        # Reset carrying state
+        self.carrying = None
+
+        # Parse the grid list and place objects
+        for j, row in enumerate(grid_list):
+            for i, cell in enumerate(row):
+                cell_str = cell.strip()
+
+                if cell_str == "#":
+                    self.grid.set(i, j, Wall())
+                elif cell_str == "A":
+                    agent_pos = (i, j)
+                    self.grid.set(i, j, None)  # Agent position is empty
+                elif cell_str == "G":
+                    goal_pos = (i, j)
+                    self.put_obj(Goal(), i, j)
+                elif cell_str == "_":
+                    self.grid.set(i, j, None)  # Empty space
+                elif cell_str == "K":
+                    # Place a yellow key
+                    key = Key("yellow")
+                    self.put_obj(key, i, j)
+                elif cell_str == "D":
+                    # Place a yellow locked door
+                    door = Door("yellow", is_locked=True)
+                    self.put_obj(door, i, j)
+                elif cell_str == "O":
+                    # Place a yellow open door
+                    door = Door("yellow", is_locked=False)
+                    door.is_open = True
+                    self.put_obj(door, i, j)
+                else:
+                    # Default to empty for unknown characters
+                    self.grid.set(i, j, None)
+
+        # Set agent position and direction
+        if agent_pos is None:
+            raise ValueError("Agent position 'A' not found in grid_list")
+        self.agent_pos = agent_pos
+        self.agent_dir = (
+            self.agent_start_dir_user if self.agent_start_dir_user is not None else 0
+        )
+        self.goal_pos = goal_pos
+
+        self.mission = "Reach the Goal"
+
 
 if __name__ == "__main__":
     import pygame
     from reveng.environment_generator.wrappers.text_obs_wrapper import (
         FullObservabilityTextWrapper,
     )
+    from reveng.environment_generator.utils import remove_door
 
     # Manual control for 4-Room Environment (2x2)
-    print("--- Manual Control: 4-Room Environment (2x2) with door/key ---")
+    print("--- Manual Control: 4-Room Environment (2x2) without door ---")
     print("Use arrow keys to move the agent")
-    print("The agent will automatically pick up the key and open doors")
+    print("The environment has a key but the door has been removed")
 
     base_env = RoomsMinigridEnv(render_mode="human", add_door_key=True)
     env = FullObservabilityTextWrapper(base_env)
-    env.reset()
+    obs, info = env.reset()
+
+    # Remove the door after reset
+    env.unwrapped.grid = remove_door(env.unwrapped).grid
 
     # Map pygame keys to environment actions
     key_to_action = {
