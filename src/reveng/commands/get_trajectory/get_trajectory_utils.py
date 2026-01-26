@@ -217,6 +217,7 @@ def generate_trajectory(
     metadata: dict = {},
     verbose: bool = False,
     remove_door_from_env: bool = False,
+    skip_reset: bool = False,
 ):
     """Generate a complete agent trajectory in the environment.
 
@@ -233,6 +234,8 @@ def generate_trajectory(
         metadata: Additional metadata to include (currently unused).
         verbose: If True, log detailed information during generation.
         remove_door_from_env: If True, remove the door from the environment after reset (keeps the key).
+        skip_reset: If True, skip environment reset and use current state. Useful when
+            environment is already pre-configured (e.g., key already removed). Default: False.
 
     Returns:
         Trajectory: A Trajectory object containing:
@@ -248,14 +251,19 @@ def generate_trajectory(
     terminated = False
     truncated = False
 
-    observation, _ = env.reset()
-
-    # Remove the door after reset if requested
-    if remove_door_from_env:
-        env.unwrapped.grid = remove_door(env.unwrapped).grid
-        # Regenerate observation after modifying the grid
+    if skip_reset:
+        # Don't reset the environment, just get the current observation
         raw_obs = env.unwrapped.gen_obs()
         observation = env.observation(raw_obs)
+    else:
+        observation, _ = env.reset()
+
+        # Remove the door after reset if requested
+        if remove_door_from_env:
+            env.unwrapped.grid = remove_door(env.unwrapped).grid
+            # Regenerate observation after modifying the grid
+            raw_obs = env.unwrapped.gen_obs()
+            observation = env.observation(raw_obs)
 
     traj_metadata = {}
     start_pos = tuple(int(x) for x in env.unwrapped.agent_pos)
