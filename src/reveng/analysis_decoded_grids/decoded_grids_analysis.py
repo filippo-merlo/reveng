@@ -332,7 +332,7 @@ def probe2env(
                 grid_data[(row_idx, col_idx)] = predictions
 
     if not grid_data:
-        return None
+        raise ValueError("No valid probe data found")
 
     height = max_row + 1
     width = max_col + 1
