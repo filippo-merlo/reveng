@@ -278,6 +278,9 @@ class Simple2DNavigationEnv(MiniGridEnv):
         self._initial_agent_pos = self.agent_pos
         self._initial_agent_dir = self.agent_dir
 
+        self.step_count = 0
+        self.carrying = None
+
         self.mission = "Reach the Goal"
 
     def reset(self, **kwargs):
