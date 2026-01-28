@@ -45,6 +45,7 @@ from reveng.analysis.analysis_utils import (
     compute_trajectory_action_accuracy,
     extract_agent_position_from_grid_state,
     jensen_shannon_divergence,
+    optimal_entropy,
     sanitize_label,
     shannon_entropy,
 )
@@ -129,7 +130,7 @@ class GridTrajectoryMetrics:
 
     grid_id: str
     grid_size: int
-    complexity: float
+    density: float
     instance_id: int
     optimal_path_length: int
 
@@ -143,6 +144,7 @@ class GridTrajectoryMetrics:
 
     # Uncertainty metrics (using empirical distribution)
     mean_entropy: float  # Avg entropy of empirical dist at visited states
+    mean_optimal_entropy: float  # Avg entropy of optimal policy at visited states
     mean_jsd: float  # Avg JSD between empirical and optimal dist
     ece: float  # Expected Calibration Error
 
@@ -155,7 +157,7 @@ class GridTrajectoryMetrics:
         return {
             "grid_id": self.grid_id,
             "grid_size": self.grid_size,
-            "complexity": self.complexity,
+            "density": self.density,
             "instance_id": self.instance_id,
             "optimal_path_length": self.optimal_path_length,
             "num_trajectories": self.num_trajectories,
@@ -165,6 +167,7 @@ class GridTrajectoryMetrics:
             "mean_action_accuracy": self.mean_action_accuracy,
             "spl": self.spl,
             "mean_entropy": self.mean_entropy,
+            "mean_optimal_entropy": self.mean_optimal_entropy,
             "mean_jsd": self.mean_jsd,
             "ece": self.ece,
             "mean_step_accuracy": self.mean_step_accuracy,
@@ -178,8 +181,8 @@ class ModelTrajectoryResults:
 
     model_name: str
     df: pd.DataFrame  # Per-grid metrics
-    state_df: pd.DataFrame  # Per-state metrics with distance, size, complexity
-    summary_by_size_complexity: pd.DataFrame
+    state_df: pd.DataFrame  # Per-state metrics with distance, size, density
+    summary_by_size_density: pd.DataFrame
     summary_by_distance: pd.DataFrame  # Per-distance metrics
     overall_summary: dict[str, Any]
 
@@ -205,6 +208,7 @@ def parse_trajectory_filename(filename: str) -> Optional[dict[str, Any]]:
         return None
 
     # Pattern: {model}_size{size}_comp{comp}_grid{grid_id}_base_traj{traj_id}.json
+    # Note: files use "comp" for density (historical naming)
     pattern = r"(.+)_size(\d+)_comp([\d.]+)_grid(\d+)_base_traj(\d+)\.json"
     match = re.match(pattern, filename)
 
@@ -215,7 +219,7 @@ def parse_trajectory_filename(filename: str) -> Optional[dict[str, Any]]:
     return {
         "model": model,
         "grid_size": int(size),
-        "complexity": float(comp),
+        "density": float(comp),
         "grid_id": int(grid_id),
         "trajectory_id": int(traj_id),
     }
@@ -237,7 +241,7 @@ def discover_trajectory_files(
         if parsed:
             grid_key = (
                 f"size{parsed['grid_size']}_"
-                f"comp{parsed['complexity']}_"
+                f"comp{parsed['density']}_"
                 f"grid{parsed['grid_id']}"
             )
             grid_trajectories[grid_key].append(filepath)
@@ -314,7 +318,9 @@ def load_lightweight_trajectory(filepath: Path) -> Optional[LightweightTrajector
         goal_coords = gp.get("goal_coordinates", [0, 0])
         grid_params = TrajectoryGridParams(
             grid_size=gp.get("grid_width", 0),
-            complexity=gp.get("grid_complexity", 0.0),
+            complexity=gp.get(
+                "grid_complexity", 0.0
+            ),  # Note: external class uses "complexity"
             grid_id=0,  # Will be parsed from filename
             astar_distance=gp.get("astar_distance", 0),
             agent_start=(
@@ -409,13 +415,14 @@ def load_grid_layout(grid_file: Path) -> Optional[list[list[str]]]:
 def compute_empirical_uncertainty_metrics(
     state_action_counts: StateActionCounts,
     optimal_actions: dict[tuple[int, int], OptimalActionSet],
-) -> tuple[float, float]:
-    """Compute mean entropy and JSD using empirical distributions.
+) -> tuple[float, float, float]:
+    """Compute mean entropy, optimal entropy, and JSD using empirical distributions.
 
     Returns:
-        (mean_entropy, mean_jsd)
+        (mean_entropy, mean_optimal_entropy, mean_jsd)
     """
     entropies = []
+    optimal_entropies = []
     jsds = []
 
     for pos, action_counts in state_action_counts.counts.items():
@@ -429,6 +436,11 @@ def compute_empirical_uncertainty_metrics(
         entropy = shannon_entropy(empirical_dist)
         entropies.append(entropy)
 
+        # Entropy of optimal policy (uniform over optimal actions)
+        if optimal_set:
+            opt_ent = optimal_entropy(len(optimal_set))
+            optimal_entropies.append(opt_ent)
+
         # JSD between empirical and optimal
         if optimal_set:
             jsd = jensen_shannon_divergence(optimal_set, empirical_dist)
@@ -436,9 +448,12 @@ def compute_empirical_uncertainty_metrics(
                 jsds.append(jsd)
 
     mean_entropy = sum(entropies) / len(entropies) if entropies else 0.0
+    mean_optimal_entropy = (
+        sum(optimal_entropies) / len(optimal_entropies) if optimal_entropies else 0.0
+    )
     mean_jsd = sum(jsds) / len(jsds) if jsds else 0.0
 
-    return mean_entropy, mean_jsd
+    return mean_entropy, mean_optimal_entropy, mean_jsd
 
 
 def compute_ece(
@@ -515,13 +530,13 @@ def compute_grid_metrics(
         return None, []
 
     # Parse grid key
-    # Format: "size{N}_comp{X.X}_grid{N}"
+    # Format: "size{N}_comp{X.X}_grid{N}" (comp = density, historical naming)
     match = re.match(r"size(\d+)_comp([\d.]+)_grid(\d+)", grid_key)
     if not match:
         return None
 
     grid_size = int(match.group(1))
-    complexity = float(match.group(2))
+    density = float(match.group(2))
     instance_id = int(match.group(3))
 
     # Get optimal path length from first trajectory
@@ -564,8 +579,8 @@ def compute_grid_metrics(
     spl = compute_spl(trajectories, optimal_path_length)
 
     # Uncertainty metrics
-    mean_entropy, mean_jsd = compute_empirical_uncertainty_metrics(
-        state_action_counts, optimal_actions
+    mean_entropy, mean_optimal_entropy, mean_jsd = (
+        compute_empirical_uncertainty_metrics(state_action_counts, optimal_actions)
     )
     ece = compute_ece(state_action_counts, optimal_actions)
 
@@ -589,6 +604,9 @@ def compute_grid_metrics(
         # Entropy
         entropy = shannon_entropy(empirical_dist)
 
+        # Optimal policy entropy
+        opt_ent = optimal_entropy(len(optimal_set)) if optimal_set else 0.0
+
         # JSD
         jsd = None
         if optimal_set:
@@ -601,9 +619,10 @@ def compute_grid_metrics(
         state_metrics_list.append(
             {
                 "grid_size": grid_size,
-                "complexity": complexity,
+                "density": density,
                 "distance_to_goal": distance,
                 "entropy": entropy,
+                "optimal_entropy": opt_ent,
                 "jsd": jsd,
                 "is_optimal": is_optimal,
                 "n_observations": total,
@@ -613,7 +632,7 @@ def compute_grid_metrics(
     grid_metrics = GridTrajectoryMetrics(
         grid_id=grid_key,
         grid_size=grid_size,
-        complexity=complexity,
+        density=density,
         instance_id=instance_id,
         optimal_path_length=optimal_path_length,
         num_trajectories=len(trajectories),
@@ -623,6 +642,7 @@ def compute_grid_metrics(
         mean_action_accuracy=mean_action_accuracy,
         spl=spl,
         mean_entropy=mean_entropy,
+        mean_optimal_entropy=mean_optimal_entropy,
         mean_jsd=mean_jsd,
         ece=ece,
         mean_step_accuracy=mean_step_accuracy,
@@ -743,7 +763,7 @@ def process_model_trajectories(
     state_df = pd.DataFrame(all_state_metrics)
 
     # Compute summaries
-    summary_df = compute_summary_by_size_complexity(df)
+    summary_df = compute_summary_by_size_density(df)
     distance_df = compute_summary_by_distance(state_df)
     overall = compute_overall_summary(df)
 
@@ -751,19 +771,19 @@ def process_model_trajectories(
         model_name=model_name,
         df=df,
         state_df=state_df,
-        summary_by_size_complexity=summary_df,
+        summary_by_size_density=summary_df,
         summary_by_distance=distance_df,
         overall_summary=overall,
     )
 
 
-def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute summary statistics grouped by grid_size and complexity."""
+def compute_summary_by_size_density(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute summary statistics grouped by grid_size and density."""
     if df.empty:
         return pd.DataFrame()
 
     summary = (
-        df.groupby(["grid_size", "complexity"])
+        df.groupby(["grid_size", "density"])
         .agg(
             n_grids=("grid_id", "count"),
             mean_goal_success=("goal_success_rate", "mean"),
@@ -774,6 +794,8 @@ def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
             se_spl=("spl", "sem"),
             mean_entropy=("mean_entropy", "mean"),
             se_entropy=("mean_entropy", "sem"),
+            mean_optimal_entropy=("mean_optimal_entropy", "mean"),
+            se_optimal_entropy=("mean_optimal_entropy", "sem"),
             mean_jsd=("mean_jsd", "mean"),
             se_jsd=("mean_jsd", "sem"),
             mean_ece=("ece", "mean"),
@@ -812,6 +834,8 @@ def compute_summary_by_distance(
             n_states=("entropy", "count"),
             mean_entropy=("entropy", "mean"),
             se_entropy=("entropy", "sem"),
+            mean_optimal_entropy=("optimal_entropy", "mean"),
+            se_optimal_entropy=("optimal_entropy", "sem"),
             mean_jsd=("jsd", "mean"),
             se_jsd=("jsd", "sem"),
             accuracy=("is_optimal", "mean"),
@@ -842,6 +866,7 @@ def compute_overall_summary(df: pd.DataFrame) -> dict[str, Any]:
         "overall_action_accuracy": float(df["mean_action_accuracy"].mean()),
         "overall_spl": float(df["spl"].mean()),
         "overall_entropy": float(df["mean_entropy"].mean()),
+        "overall_optimal_entropy": float(df["mean_optimal_entropy"].mean()),
         "overall_jsd": float(df["mean_jsd"].mean()),
         "overall_ece": float(df["ece"].mean()),
     }
@@ -879,21 +904,20 @@ def save_figure(fig: plt.Figure, output_dir: Path, filename: str) -> Path:
     return png_path
 
 
-def plot_metrics_by_size_complexity(
+def plot_metrics_by_size_density(
     df: pd.DataFrame,
     output_dir: Path,
     model_name: str,
 ) -> dict[str, Path]:
-    """Generate plots of metrics by grid size and complexity."""
+    """Generate plots of metrics by grid size and density."""
     setup_paper_style()
     output_paths = {}
 
-    # Metrics to plot
+    # Metrics to plot (non-entropy metrics)
     metrics = [
         ("goal_success_rate", "Goal Success Rate"),
         ("mean_action_accuracy", "Action Accuracy"),
         ("spl", "SPL"),
-        ("mean_entropy", "Mean Entropy (bits)"),
         ("mean_jsd", "Mean JSD"),
         ("ece", "ECE"),
     ]
@@ -916,19 +940,19 @@ def plot_metrics_by_size_complexity(
         axes[0].set_title(f"{metric_label} by Grid Size")
         axes[0].grid(True, alpha=0.3)
 
-        # By complexity
-        comp_summary = df.groupby("complexity")[metric_col].agg(["mean", "sem"])
+        # By density
+        density_summary = df.groupby("density")[metric_col].agg(["mean", "sem"])
         axes[1].errorbar(
-            comp_summary.index,
-            comp_summary["mean"],
-            yerr=comp_summary["sem"],
+            density_summary.index,
+            density_summary["mean"],
+            yerr=density_summary["sem"],
             marker="o",
             capsize=3,
             color=MODEL_COLORS[1],
         )
-        axes[1].set_xlabel("Complexity")
+        axes[1].set_xlabel("Density")
         axes[1].set_ylabel(metric_label)
-        axes[1].set_title(f"{metric_label} by Complexity")
+        axes[1].set_title(f"{metric_label} by Density")
         axes[1].grid(True, alpha=0.3)
 
         # plt.suptitle(f"{metric_label}", fontweight="bold")
@@ -937,6 +961,74 @@ def plot_metrics_by_size_complexity(
         output_path = save_figure(fig, output_dir, f"{metric_col}_by_size_complexity")
         plt.close(fig)
         output_paths[metric_col] = output_path
+
+    # Special handling for entropy: plot both model and optimal entropy
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # By grid size - entropy with optimal
+    size_entropy = df.groupby("grid_size")["mean_entropy"].agg(["mean", "sem"])
+    size_opt_entropy = df.groupby("grid_size")["mean_optimal_entropy"].agg(
+        ["mean", "sem"]
+    )
+    axes[0].errorbar(
+        size_entropy.index,
+        size_entropy["mean"],
+        yerr=size_entropy["sem"],
+        marker="o",
+        capsize=3,
+        color=MODEL_COLORS[0],
+        label="Model",
+    )
+    axes[0].errorbar(
+        size_opt_entropy.index,
+        size_opt_entropy["mean"],
+        yerr=size_opt_entropy["sem"],
+        marker="s",
+        capsize=3,
+        color=MODEL_COLORS[2],
+        linestyle="--",
+        label="Optimal",
+    )
+    axes[0].set_xlabel("Grid Size")
+    axes[0].set_ylabel("Mean Entropy (bits)")
+    axes[0].set_title("Entropy by Grid Size")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(fontsize=12, frameon=False)
+
+    # By density - entropy with optimal
+    density_entropy = df.groupby("density")["mean_entropy"].agg(["mean", "sem"])
+    density_opt_entropy = df.groupby("density")["mean_optimal_entropy"].agg(
+        ["mean", "sem"]
+    )
+    axes[1].errorbar(
+        density_entropy.index,
+        density_entropy["mean"],
+        yerr=density_entropy["sem"],
+        marker="o",
+        capsize=3,
+        color=MODEL_COLORS[0],
+        label="Model",
+    )
+    axes[1].errorbar(
+        density_opt_entropy.index,
+        density_opt_entropy["mean"],
+        yerr=density_opt_entropy["sem"],
+        marker="s",
+        capsize=3,
+        color=MODEL_COLORS[2],
+        linestyle="--",
+        label="Optimal",
+    )
+    axes[1].set_xlabel("Density")
+    axes[1].set_ylabel("Mean Entropy (bits)")
+    axes[1].set_title("Entropy by Density")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(fontsize=12, frameon=False)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 1])
+    output_path = save_figure(fig, output_dir, "mean_entropy_by_size_complexity")
+    plt.close(fig)
+    output_paths["mean_entropy"] = output_path
 
     return output_paths
 
@@ -1105,7 +1197,7 @@ def plot_heatmaps(
     output_dir: Path,
     model_name: str,
 ) -> Path:
-    """Plot heatmaps of metrics by grid_size x complexity."""
+    """Plot heatmaps of metrics by grid_size x density."""
     setup_paper_style()
 
     metrics = [
@@ -1120,7 +1212,7 @@ def plot_heatmaps(
 
     for idx, (metric_col, metric_label) in enumerate(metrics):
         pivot = summary_df.pivot(
-            index="complexity", columns="grid_size", values=metric_col
+            index="density", columns="grid_size", values=metric_col
         )
 
         im = axes[idx].imshow(pivot.values, cmap="RdYlGn", aspect="auto")
@@ -1129,7 +1221,7 @@ def plot_heatmaps(
         axes[idx].set_yticks(range(len(pivot.index)))
         axes[idx].set_yticklabels([f"{c:.1f}" for c in pivot.index])
         axes[idx].set_xlabel("Grid Size")
-        axes[idx].set_ylabel("Complexity")
+        axes[idx].set_ylabel("Density")
         axes[idx].set_title(metric_label)
 
         # Add values
@@ -1152,7 +1244,7 @@ def plot_heatmaps(
     return output_path
 
 
-def plot_distance_complexity_heatmap(
+def plot_distance_density_heatmap(
     state_df: pd.DataFrame,
     output_dir: Path,
     model_name: str,
@@ -1161,15 +1253,15 @@ def plot_distance_complexity_heatmap(
     n_distance_bins: int = 10,
     max_distance: int = 50,
 ) -> Path:
-    """Plot multi-panel heatmap of metric by distance, complexity, and grid size.
+    """Plot multi-panel heatmap of metric by distance, density, and grid size.
 
     Creates a figure with 5 columns (one per grid size), where:
-    - X-axis: complexity bins (0 to 1)
+    - X-axis: density bins (0 to 1)
     - Y-axis: binned distance to goal
     - Fill: mean metric value for that combination
 
     Args:
-        state_df: DataFrame with per-state metrics including grid_size, complexity,
+        state_df: DataFrame with per-state metrics including grid_size, density,
                   distance_to_goal, and the metric column
         output_dir: Directory to save the figure
         model_name: Name of the model for the title
@@ -1224,8 +1316,8 @@ def plot_distance_complexity_heatmap(
         include_lowest=True,
     )
 
-    # Get unique complexity values (sorted)
-    complexity_values = sorted(df["complexity"].unique())
+    # Get unique density values (sorted)
+    density_values = sorted(df["density"].unique())
 
     # Create figure with subplots for each grid size
     fig, axes = plt.subplots(1, n_sizes, figsize=(2.5 * n_sizes, 6), sharey=True)
@@ -1242,15 +1334,15 @@ def plot_distance_complexity_heatmap(
     for size in grid_sizes:
         size_df = df[df["grid_size"] == size]
 
-        # Aggregate by complexity and distance bin
+        # Aggregate by density and distance bin
         pivot = (
-            size_df.groupby(["distance_bin", "complexity"], observed=False)[metric]
+            size_df.groupby(["distance_bin", "density"], observed=False)[metric]
             .mean()
             .unstack()
         )
 
-        # Reindex to ensure all complexity values are present
-        pivot = pivot.reindex(columns=complexity_values)
+        # Reindex to ensure all density values are present
+        pivot = pivot.reindex(columns=density_values)
 
         # Reindex rows to ensure all distance bins are present
         pivot = pivot.reindex(distance_labels)
@@ -1282,15 +1374,15 @@ def plot_distance_complexity_heatmap(
             origin="lower",
         )
 
-        # X-axis: complexity
-        ax.set_xticks(range(len(complexity_values)))
-        ax.set_xticklabels([f"{c:.1f}" for c in complexity_values], fontsize=10)
-        # ax.set_xlabel("Complexity", fontsize=20)
+        # X-axis: density
+        ax.set_xticks(range(len(density_values)))
+        ax.set_xticklabels([f"{c:.1f}" for c in density_values], fontsize=10)
+        # ax.set_xlabel("Density", fontsize=20)
 
         ax.set_title(f"{size}x{size}", fontsize=20, fontweight="bold")
 
         # Add grid lines between cells (minor ticks)
-        ax.set_xticks(np.arange(-0.5, len(complexity_values), 1), minor=True)
+        ax.set_xticks(np.arange(-0.5, len(density_values), 1), minor=True)
         ax.set_yticks(np.arange(-0.5, len(distance_labels), 1), minor=True)
         ax.grid(which="minor", color="white", linestyle="-", linewidth=0.5)
         ax.tick_params(which="minor", length=0)
@@ -1303,7 +1395,7 @@ def plot_distance_complexity_heatmap(
             ax.tick_params(labelleft=False)
 
         if idx == 2:
-            ax.set_xlabel("Complexity", fontsize=20)
+            ax.set_xlabel("Density", fontsize=20)
 
     # Set y-tick labels on first axis (do this after loop to avoid sharey issues)
     axes[0].set_yticks(range(len(distance_labels)))
@@ -1348,7 +1440,7 @@ def save_results(
 
     # Save summary
     summary_path = model_dir / "summary_by_size_complexity.csv"
-    results.summary_by_size_complexity.to_csv(summary_path, index=False)
+    results.summary_by_size_density.to_csv(summary_path, index=False)
     output_paths["summary"] = summary_path
     print(f"  Saved: {summary_path}")
 
@@ -1367,32 +1459,32 @@ def save_results(
 
     # Generate visualizations
     print("  Generating visualizations...")
-    plot_metrics_by_size_complexity(results.df, model_dir, results.model_name)
+    plot_metrics_by_size_density(results.df, model_dir, results.model_name)
     plot_capability_vs_uncertainty(results.df, model_dir, results.model_name)
-    if not results.summary_by_size_complexity.empty:
-        plot_heatmaps(results.summary_by_size_complexity, model_dir, results.model_name)
+    if not results.summary_by_size_density.empty:
+        plot_heatmaps(results.summary_by_size_density, model_dir, results.model_name)
     if not results.summary_by_distance.empty:
         plot_metrics_by_distance(
             results.summary_by_distance, model_dir, results.model_name
         )
 
-    # Generate distance-complexity heatmaps for multiple metrics
+    # Generate distance-density heatmaps for multiple metrics
     if not results.state_df.empty:
-        plot_distance_complexity_heatmap(
+        plot_distance_density_heatmap(
             results.state_df,
             model_dir,
             results.model_name,
             metric="is_optimal",
             metric_label="Action Accuracy",
         )
-        plot_distance_complexity_heatmap(
+        plot_distance_density_heatmap(
             results.state_df,
             model_dir,
             results.model_name,
             metric="entropy",
             metric_label="Entropy",
         )
-        plot_distance_complexity_heatmap(
+        plot_distance_density_heatmap(
             results.state_df,
             model_dir,
             results.model_name,
@@ -1421,6 +1513,7 @@ def print_summary(results: ModelTrajectoryResults) -> None:
 
     print("\n--- Uncertainty Metrics (Empirical) ---")
     print(f"Mean Entropy: {overall.get('overall_entropy', 0):.4f} bits")
+    print(f"Mean Optimal Entropy: {overall.get('overall_optimal_entropy', 0):.4f} bits")
     print(f"Mean JSD: {overall.get('overall_jsd', 0):.4f}")
     print(f"ECE: {overall.get('overall_ece', 0):.4f}")
 
@@ -1430,6 +1523,8 @@ def print_summary(results: ModelTrajectoryResults) -> None:
             "goal_success_rate": "mean",
             "mean_action_accuracy": "mean",
             "spl": "mean",
+            "mean_entropy": "mean",
+            "mean_optimal_entropy": "mean",
             "mean_jsd": "mean",
         }
     )
