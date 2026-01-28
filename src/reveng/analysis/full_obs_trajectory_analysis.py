@@ -59,13 +59,13 @@ NUM_TRAJECTORIES_PER_GRID = 10
 # Paper-quality plot settings
 PAPER_RC = {
     "font.family": "serif",
-    "font.size": 10,
-    "axes.titlesize": 11,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 9,
-    "figure.titlesize": 12,
+    "font.size": 20,
+    "axes.titlesize": 20,
+    "axes.labelsize": 20,
+    "xtick.labelsize": 18,
+    "ytick.labelsize": 18,
+    "legend.fontsize": 20,
+    "figure.titlesize": 20,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.linewidth": 0.8,
@@ -931,18 +931,7 @@ def plot_metrics_by_size_complexity(
         axes[1].set_title(f"{metric_label} by Complexity")
         axes[1].grid(True, alpha=0.3)
 
-        plt.suptitle(f"{metric_label}", fontweight="bold")
-        # Add note explaining error bars
-        fig.text(
-            0.99,
-            0.01,
-            "Mean over grids; Error bars: ±1 SE",
-            ha="right",
-            va="bottom",
-            fontsize=8,
-            style="italic",
-            color="gray",
-        )
+        # plt.suptitle(f"{metric_label}", fontweight="bold")
         plt.tight_layout(rect=[0, 0.03, 1, 1])
 
         output_path = save_figure(fig, output_dir, f"{metric_col}_by_size_complexity")
@@ -985,29 +974,30 @@ def plot_metrics_by_distance(
         df_sorted["accuracy"].rolling(window=smoothing_window, center=True).mean()
     )
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    # Entropy vs distance
+    # Accuracy vs distance
     axes[0].scatter(
         df_sorted["distance_to_goal"],
-        df_sorted["mean_entropy"],
+        df_sorted["accuracy"],
         alpha=0.3,
         s=15,
-        color=MODEL_COLORS[0],
+        color=MODEL_COLORS[2],
         label="Raw",
     )
     axes[0].plot(
         df_sorted["distance_to_goal"],
-        df_sorted["entropy_smooth"],
+        df_sorted["accuracy_smooth"],
         linewidth=2,
-        color=MODEL_COLORS[0],
+        color=MODEL_COLORS[2],
         label=f"Smoothed (window={smoothing_window})",
     )
     axes[0].set_xlabel("Distance to Goal")
-    axes[0].set_ylabel("Mean Entropy (bits)")
-    axes[0].set_title("Entropy vs Distance")
+    axes[0].set_ylabel("Accuracy")
+    # axes[1].set_title("Accuracy vs Distance")
+    axes[0].set_ylim(0, 1.05)
     axes[0].grid(True, alpha=0.3)
-    axes[0].legend(fontsize=7, loc="upper left", frameon=False)
+    axes[0].legend(fontsize=7, loc="lower left", frameon=False)
 
     # JSD vs distance
     axes[1].scatter(
@@ -1027,32 +1017,9 @@ def plot_metrics_by_distance(
     )
     axes[1].set_xlabel("Distance to Goal")
     axes[1].set_ylabel("Mean JSD")
-    axes[1].set_title("JSD vs Distance")
+    # axes[0].set_title("JSD vs Distance")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(fontsize=7, loc="upper left", frameon=False)
-
-    # Accuracy vs distance
-    axes[2].scatter(
-        df_sorted["distance_to_goal"],
-        df_sorted["accuracy"],
-        alpha=0.3,
-        s=15,
-        color=MODEL_COLORS[2],
-        label="Raw",
-    )
-    axes[2].plot(
-        df_sorted["distance_to_goal"],
-        df_sorted["accuracy_smooth"],
-        linewidth=2,
-        color=MODEL_COLORS[2],
-        label=f"Smoothed (window={smoothing_window})",
-    )
-    axes[2].set_xlabel("Distance to Goal")
-    axes[2].set_ylabel("Accuracy")
-    axes[2].set_title("Accuracy vs Distance")
-    axes[2].set_ylim(0, 1.05)
-    axes[2].grid(True, alpha=0.3)
-    axes[2].legend(fontsize=7, loc="lower left", frameon=False)
 
     # Set explicit x-axis limits and ticks for all panels
     # The data is capped at max_distance, so we set appropriate limits
@@ -1066,17 +1033,7 @@ def plot_metrics_by_distance(
         ax.set_xticks(tick_values)
         ax.set_xticklabels(tick_labels)
 
-    plt.suptitle("Metrics by Distance to Goal", fontweight="bold")
-    fig.text(
-        0.99,
-        0.01,
-        f"Points: per-distance aggregates (capped at {max_distance}+); Line: rolling average",
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        style="italic",
-        color="gray",
-    )
+    # plt.suptitle("Metrics by Distance to Goal", fontweight="bold")
     plt.tight_layout(rect=[0, 0.03, 1, 1])
 
     output_path = save_figure(fig, output_dir, "metrics_by_distance")
@@ -1186,7 +1143,7 @@ def plot_heatmaps(
 
         plt.colorbar(im, ax=axes[idx])
 
-    plt.suptitle("Metrics Heatmaps", fontweight="bold")
+    # plt.suptitle("Metrics Heatmaps", fontweight="bold")
     plt.tight_layout()
 
     output_path = save_figure(fig, output_dir, "metrics_heatmaps")
@@ -1327,10 +1284,10 @@ def plot_distance_complexity_heatmap(
 
         # X-axis: complexity
         ax.set_xticks(range(len(complexity_values)))
-        ax.set_xticklabels([f"{c:.1f}" for c in complexity_values], fontsize=7)
-        ax.set_xlabel("Complexity", fontsize=9)
+        ax.set_xticklabels([f"{c:.1f}" for c in complexity_values], fontsize=10)
+        # ax.set_xlabel("Complexity", fontsize=20)
 
-        ax.set_title(f"{size}x{size}", fontsize=10, fontweight="bold")
+        ax.set_title(f"{size}x{size}", fontsize=20, fontweight="bold")
 
         # Add grid lines between cells (minor ticks)
         ax.set_xticks(np.arange(-0.5, len(complexity_values), 1), minor=True)
@@ -1341,13 +1298,16 @@ def plot_distance_complexity_heatmap(
 
         # Y-axis: distance bins (only show labels for first subplot)
         if idx == 0:
-            ax.set_ylabel("Distance to Goal", fontsize=9)
+            ax.set_ylabel("Distance to Goal", fontsize=20)
         else:
             ax.tick_params(labelleft=False)
 
+        if idx == 2:
+            ax.set_xlabel("Complexity", fontsize=20)
+
     # Set y-tick labels on first axis (do this after loop to avoid sharey issues)
     axes[0].set_yticks(range(len(distance_labels)))
-    axes[0].set_yticklabels(distance_labels, fontsize=7)
+    axes[0].set_yticklabels(distance_labels, fontsize=14)
 
     # Adjust layout first to position subplots
     plt.subplots_adjust(top=0.92, wspace=0.08, left=0.06, right=0.88)
@@ -1355,14 +1315,7 @@ def plot_distance_complexity_heatmap(
     # Add colorbar in dedicated axes on the right (doesn't steal space from subplots)
     cbar_ax = fig.add_axes([0.91, 0.15, 0.015, 0.65])  # [left, bottom, width, height]
     cbar = fig.colorbar(im, cax=cbar_ax)
-    cbar.set_label(metric_label, fontsize=9)
-
-    plt.suptitle(
-        f"{metric_label} by Grid Size, Complexity, and Distance",
-        fontweight="bold",
-        fontsize=11,
-        y=1.02,
-    )
+    cbar.set_label(metric_label, fontsize=20)
 
     output_path = save_figure(
         fig, output_dir, f"heatmap_{metric}_by_distance_complexity"

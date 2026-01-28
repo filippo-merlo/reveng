@@ -55,13 +55,13 @@ TRANSFORM_TYPES = ["base", "ReflectEnv", "RotateEnv", "StartGoalSwap", "Transpos
 # Paper-quality plot settings
 PAPER_RC = {
     "font.family": "serif",
-    "font.size": 10,
-    "axes.titlesize": 11,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 9,
-    "figure.titlesize": 12,
+    "font.size": 20,
+    "axes.titlesize": 20,
+    "axes.labelsize": 20,
+    "xtick.labelsize": 18,
+    "ytick.labelsize": 18,
+    "legend.fontsize": 20,
+    "figure.titlesize": 20,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.linewidth": 0.8,
@@ -701,10 +701,10 @@ def plot_metrics_by_transform(
     metrics = [
         ("goal_success_rate", "Goal Success Rate"),
         ("mean_action_accuracy", "Action Accuracy"),
-        ("spl", "SPL"),
+        # ("spl", "SPL"),
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     for idx, (metric_col, metric_label) in enumerate(metrics):
         summary = df.groupby("transform_type")[metric_col].agg(["mean", "sem"])
@@ -720,16 +720,6 @@ def plot_metrics_by_transform(
         axes[idx].set_title(f"{metric_label} by Transform")
         axes[idx].grid(True, alpha=0.3, axis="y")
 
-    fig.text(
-        0.99,
-        0.01,
-        "Mean over grids; Error bars: ±1 SE",
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        style="italic",
-        color="gray",
-    )
     plt.tight_layout(rect=[0, 0.03, 1, 1])
 
     output_path = save_figure(fig, output_dir, "metrics_by_transform")
@@ -747,14 +737,14 @@ def plot_delta_from_baseline(
 
     # Compute delta from baseline for each grid
     baseline_df = df[df["transform_type"] == "base"].set_index("grid_key")
-    metrics = ["goal_success_rate", "mean_action_accuracy", "spl"]
-    metric_labels = ["Δ Goal Success", "Δ Accuracy", "Δ SPL"]
+    metrics = ["goal_success_rate", "mean_action_accuracy"]  # , "spl"]
+    metric_labels = ["Δ Goal Success", "Δ Accuracy"]  # , "Δ SPL"]
 
     transforms = [
         t for t in TRANSFORM_TYPES if t != "base" and t in df["transform_type"].values
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     for idx, (metric, label) in enumerate(zip(metrics, metric_labels)):
         deltas = []
@@ -795,18 +785,9 @@ def plot_delta_from_baseline(
             axes[idx].set_xticklabels(delta_df["transform"], rotation=45, ha="right")
             axes[idx].set_ylabel(label)
             axes[idx].set_title(f"{label} (vs Baseline)")
+            axes[idx].set_ylim(-0.5, 0.5)
             axes[idx].grid(True, alpha=0.3, axis="y")
 
-    fig.text(
-        0.99,
-        0.01,
-        "Mean over paired grids; Error bars: ±1 SE",
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        style="italic",
-        color="gray",
-    )
     plt.tight_layout(rect=[0, 0.03, 1, 1])
 
     output_path = save_figure(fig, output_dir, "delta_from_baseline")
@@ -825,10 +806,10 @@ def plot_metrics_by_size_transform(
     metrics = [
         ("goal_success_rate", "Goal Success Rate"),
         ("mean_action_accuracy", "Action Accuracy"),
-        ("spl", "SPL"),
+        # ("spl", "SPL"),
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
     transforms = [t for t in TRANSFORM_TYPES if t in df["transform_type"].values]
 
@@ -853,18 +834,8 @@ def plot_metrics_by_size_transform(
         axes[idx].set_title(f"{metric_label} by Grid Size")
         axes[idx].grid(True, alpha=0.3)
         if idx == 0:
-            axes[idx].legend(fontsize=7, loc="best", frameon=False)
+            axes[idx].legend(fontsize=20, loc="best", frameon=False)
 
-    fig.text(
-        0.99,
-        0.01,
-        "Mean over grids; Error bars: ±1 SE",
-        ha="right",
-        va="bottom",
-        fontsize=8,
-        style="italic",
-        color="gray",
-    )
     plt.tight_layout(rect=[0, 0.03, 1, 1])
 
     output_path = save_figure(fig, output_dir, "metrics_by_size_transform")
@@ -942,7 +913,7 @@ def plot_paired_test_results(
         handles,
         labels,
         loc="center right",
-        fontsize=8,
+        fontsize=20,
         frameon=False,
         bbox_to_anchor=(1.12, 0.5),
     )
