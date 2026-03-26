@@ -264,7 +264,9 @@ def batch_file_list(files: list[Path], batch_size: int) -> Iterator[list[Path]]:
 # =============================================================================
 
 
-def get_true_positions(grid_state: list[str]) -> tuple[tuple[int, int], tuple[int, int]]:
+def get_true_positions(
+    grid_state: list[str],
+) -> tuple[tuple[int, int], tuple[int, int]]:
     """Extract true agent and goal positions from grid_state.
 
     Args:
