@@ -108,6 +108,14 @@ class StepAnalysis:
     decoded_goal_prob: float
     decoded_valid: bool  # Was a valid environment decodable?
 
+    # Manhattan distance metrics
+    avg_agent_distance: float = float("nan")
+    avg_goal_distance: float = float("nan")
+    min_agent_distance: float = float("nan")
+    min_goal_distance: float = float("nan")
+    max_agent_distance: float = float("nan")
+    max_goal_distance: float = float("nan")
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for DataFrame construction."""
         return {
@@ -124,6 +132,12 @@ class StepAnalysis:
             "decoded_agent_prob": self.decoded_agent_prob,
             "decoded_goal_prob": self.decoded_goal_prob,
             "decoded_valid": self.decoded_valid,
+            "avg_agent_distance": self.avg_agent_distance,
+            "avg_goal_distance": self.avg_goal_distance,
+            "min_agent_distance": self.min_agent_distance,
+            "min_goal_distance": self.min_goal_distance,
+            "max_agent_distance": self.max_agent_distance,
+            "max_goal_distance": self.max_goal_distance,
         }
 
 
@@ -250,6 +264,47 @@ def batch_file_list(files: list[Path], batch_size: int) -> Iterator[list[Path]]:
 # =============================================================================
 
 
+def get_true_positions(grid_state: list[str]) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Extract true agent and goal positions from grid_state.
+
+    Args:
+        grid_state: List of strings representing the grid, where the first row
+                   contains column indices and the first column contains row indices.
+
+    Returns:
+        Tuple of (agent_position, goal_position) where each position is (row, col)
+
+    Raises:
+        ValueError: If agent or goal cannot be found in grid_state
+    """
+    if not grid_state or len(grid_state) < 2:
+        raise ValueError("grid_state must have at least 2 rows (header + data)")
+
+    agent_pos = None
+    goal_pos = None
+
+    # Skip the first row (column indices) and parse the data rows
+    for row_idx, row_str in enumerate(grid_state[1:]):  # Skip header row
+        parts = row_str.strip().split()
+        if len(parts) < 2:
+            continue
+        # First part is the row index, rest are cell values
+        row_cells = parts[1:]
+
+        for col_idx, cell in enumerate(row_cells):
+            if cell == "A":
+                agent_pos = (row_idx, col_idx)
+            elif cell == "G":
+                goal_pos = (row_idx, col_idx)
+
+    if agent_pos is None:
+        raise ValueError("Agent position 'A' not found in grid_state")
+    if goal_pos is None:
+        raise ValueError("Goal position 'G' not found in grid_state")
+
+    return agent_pos, goal_pos
+
+
 def gridstate2env(grid_state: list[str]) -> Simple2DNavigationEnv:
     """Convert a grid_state representation to a Simple2DNavigationEnv.
 
@@ -287,6 +342,116 @@ def gridstate2env(grid_state: list[str]) -> Simple2DNavigationEnv:
 # =============================================================================
 # Probe to Environment Conversion
 # =============================================================================
+
+
+def get_classified_cells(
+    probes: dict,
+    layer_key: str = "model.layers.15.output",
+) -> tuple[list[tuple[int, int, float]], list[tuple[int, int, float]]]:
+    """Extract all cells classified as agent or goal with their probabilities.
+
+    Args:
+        probes: Dictionary of probe data with keys like
+                "cognitive_map_probe_l15_s0_suffix_-3--1_mlp_1024_full_upsample_normalize_r{row}_c{col}"
+        layer_key: The layer key to extract predictions from
+
+    Returns:
+        Tuple of (agent_positions, goal_positions) where each is a list of
+        (row, col, probability) tuples sorted by probability in descending order
+    """
+    # Parse probe keys to extract grid positions and predictions
+    grid_data = {}
+
+    for probe_key, probe_value in probes.items():
+        if "_r" in probe_key and "_c" in probe_key:
+            parts = probe_key.split("_")
+            row_idx = None
+            col_idx = None
+
+            for part in parts:
+                if part.startswith("r") and part[1:].lstrip("-").isdigit():
+                    row_idx = int(part[1:])
+                elif part.startswith("c") and part[1:].lstrip("-").isdigit():
+                    col_idx = int(part[1:])
+
+            if row_idx is not None and col_idx is not None:
+                predictions = probe_value.get(layer_key, {})
+                grid_data[(row_idx, col_idx)] = predictions
+
+    # Find cells classified as agent or goal
+    agent_positions = []
+    goal_positions = []
+
+    for (row, col), predictions in grid_data.items():
+        if predictions:
+            max_class = max(predictions.items(), key=lambda x: x[1])
+            class_name, class_prob = max_class
+
+            if class_name == "agent":
+                agent_positions.append((row, col, class_prob))
+            elif class_name == "goal":
+                goal_positions.append((row, col, class_prob))
+
+    # Sort by probability in descending order
+    agent_positions.sort(key=lambda x: x[2], reverse=True)
+    goal_positions.sort(key=lambda x: x[2], reverse=True)
+
+    return agent_positions, goal_positions
+
+
+def calculate_manhattan_distance_metrics(
+    agent_cells: list[tuple[int, int, float]],
+    goal_cells: list[tuple[int, int, float]],
+    true_agent_pos: tuple[int, int],
+    true_goal_pos: tuple[int, int],
+) -> dict[str, float]:
+    """Calculate average Manhattan distance metrics for classified cells.
+
+    Args:
+        agent_cells: List of (row, col, probability) for cells classified as agent
+        goal_cells: List of (row, col, probability) for cells classified as goal
+        true_agent_pos: Ground truth agent position (row, col)
+        true_goal_pos: Ground truth goal position (row, col)
+
+    Returns:
+        Dictionary containing:
+            - avg_agent_distance: Average Manhattan distance of agent cells to true agent
+            - avg_goal_distance: Average Manhattan distance of goal cells to true goal
+            - min_agent_distance: Minimum Manhattan distance of agent cells to true agent
+            - min_goal_distance: Minimum Manhattan distance of goal cells to true goal
+            - max_agent_distance: Maximum Manhattan distance of agent cells to true agent
+            - max_goal_distance: Maximum Manhattan distance of goal cells to true goal
+    """
+    metrics = {
+        "avg_agent_distance": float("nan"),
+        "avg_goal_distance": float("nan"),
+        "min_agent_distance": float("nan"),
+        "min_goal_distance": float("nan"),
+        "max_agent_distance": float("nan"),
+        "max_goal_distance": float("nan"),
+    }
+
+    # Calculate agent metrics
+    if agent_cells:
+        agent_distances = [
+            abs(row - true_agent_pos[0]) + abs(col - true_agent_pos[1])
+            for row, col, _ in agent_cells
+        ]
+        metrics["avg_agent_distance"] = sum(agent_distances) / len(agent_distances)
+        metrics["min_agent_distance"] = float(min(agent_distances))
+        metrics["max_agent_distance"] = float(max(agent_distances))
+
+    # Calculate goal metrics
+    if goal_cells:
+        goal_distances = [
+            abs(row - true_goal_pos[0]) + abs(col - true_goal_pos[1])
+            for row, col, _ in goal_cells
+        ]
+        metrics["avg_goal_distance"] = sum(goal_distances) / len(goal_distances)
+        metrics["min_goal_distance"] = float(min(goal_distances))
+        metrics["max_goal_distance"] = float(max(goal_distances))
+
+    return metrics
 
 
 def probe2env(
@@ -542,6 +707,29 @@ def analyze_step(
         )
         decoded_valid = decoded_env is not None and bool(optimal_decoded)
 
+        # Compute Manhattan distance metrics
+        manhattan_metrics = {
+            "avg_agent_distance": float("nan"),
+            "avg_goal_distance": float("nan"),
+            "min_agent_distance": float("nan"),
+            "min_goal_distance": float("nan"),
+            "max_agent_distance": float("nan"),
+            "max_goal_distance": float("nan"),
+        }
+
+        try:
+            # Get true positions
+            true_agent_pos, true_goal_pos = get_true_positions(grid_state)
+            # Get classified cells
+            agent_cells, goal_cells = get_classified_cells(probes, layer_key=layer_key)
+            # Compute Manhattan distance metrics
+            manhattan_metrics = calculate_manhattan_distance_metrics(
+                agent_cells, goal_cells, true_agent_pos, true_goal_pos
+            )
+        except Exception:
+            # If Manhattan distance computation fails, keep NaN values
+            pass
+
         return StepAnalysis(
             step_id=step_data["step_id"],
             trajectory_id=trajectory_id,
@@ -556,6 +744,12 @@ def analyze_step(
             decoded_agent_prob=decoded_agent_prob,
             decoded_goal_prob=decoded_goal_prob,
             decoded_valid=decoded_valid,
+            avg_agent_distance=manhattan_metrics["avg_agent_distance"],
+            avg_goal_distance=manhattan_metrics["avg_goal_distance"],
+            min_agent_distance=manhattan_metrics["min_agent_distance"],
+            min_goal_distance=manhattan_metrics["min_goal_distance"],
+            max_agent_distance=manhattan_metrics["max_agent_distance"],
+            max_goal_distance=manhattan_metrics["max_goal_distance"],
         )
 
     except Exception as e:
@@ -704,7 +898,7 @@ def process_trajectories(
     step_df = pd.DataFrame([s.to_dict() for s in all_step_results])
 
     # Compute summaries
-    summary_df = compute_summary_by_size_complexity(trajectory_df)
+    summary_df = compute_summary_by_size_complexity(trajectory_df, step_df)
     overall = compute_overall_summary(trajectory_df, step_df)
 
     return AnalysisResults(
@@ -715,13 +909,15 @@ def process_trajectories(
     )
 
 
-def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
+def compute_summary_by_size_complexity(
+    trajectory_df: pd.DataFrame, step_df: pd.DataFrame
+) -> pd.DataFrame:
     """Compute summary statistics grouped by grid_size and complexity."""
-    if df.empty:
+    if trajectory_df.empty:
         return pd.DataFrame()
 
     summary = (
-        df.groupby(["grid_size", "complexity"])
+        trajectory_df.groupby(["grid_size", "complexity"])
         .agg(
             n_trajectories=("trajectory_id", "count"),
             mean_taken_optimal_gt=("taken_optimal_gt_rate", "mean"),
@@ -741,6 +937,25 @@ def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
         summary["total_decoded_correct"] / summary["total_error_steps"]
     ).fillna(0)
 
+    # Add Manhattan distance metrics by grouping step_df
+    if not step_df.empty:
+        manhattan_summary = (
+            step_df.groupby(["grid_size", "complexity"])
+            .agg(
+                avg_agent_distance=("avg_agent_distance", "mean"),
+                avg_goal_distance=("avg_goal_distance", "mean"),
+                min_agent_distance=("min_agent_distance", "mean"),
+                min_goal_distance=("min_goal_distance", "mean"),
+                max_agent_distance=("max_agent_distance", "mean"),
+                max_goal_distance=("max_goal_distance", "mean"),
+            )
+            .reset_index()
+        )
+        # Merge with summary
+        summary = summary.merge(
+            manhattan_summary, on=["grid_size", "complexity"], how="left"
+        )
+
     return summary
 
 
@@ -754,6 +969,16 @@ def compute_overall_summary(
 
     total_error_steps = trajectory_df["error_steps"].sum()
     total_decoded_correct = trajectory_df["decoded_correct_on_errors"].sum()
+
+    # Compute Manhattan distance metrics (averaging over all valid steps)
+    manhattan_metrics = {
+        "avg_agent_distance": float(step_df["avg_agent_distance"].mean()),
+        "avg_goal_distance": float(step_df["avg_goal_distance"].mean()),
+        "min_agent_distance": float(step_df["min_agent_distance"].mean()),
+        "min_goal_distance": float(step_df["min_goal_distance"].mean()),
+        "max_agent_distance": float(step_df["max_agent_distance"].mean()),
+        "max_goal_distance": float(step_df["max_goal_distance"].mean()),
+    }
 
     return {
         "n_trajectories": int(len(trajectory_df)),
@@ -775,6 +1000,7 @@ def compute_overall_summary(
             if total_error_steps > 0
             else 0.0
         ),
+        "manhattan_distance_metrics": manhattan_metrics,
     }
 
 
@@ -1230,14 +1456,14 @@ def main() -> None:
     parser.add_argument(
         "--base-dir",
         type=str,
-        default="data/trajectories_test_full_with_probes/trajectories_test_full_with_probes/layer15/mlp_general/pre_reasoning",
+        default="data/pre_reasoning",
         help="Base directory containing size subdirectories with trajectory files",
     )
 
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="src/reveng/analysis_decoded_grids/outputs",
+        default="outputs",
         help="Directory to save analysis outputs",
     )
 
