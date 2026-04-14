@@ -614,6 +614,57 @@ def process_isotransform_trajectories(
     )
 
 
+def load_results_from_statistics_dir(
+    stats_dir: Path,
+    model_name: Optional[str] = None,
+) -> IsotransformComparisonResults:
+    """Load precomputed isotransform results from saved CSV outputs."""
+    metrics_paths = sorted(stats_dir.glob("isotransform_metrics_*.csv"))
+    if not metrics_paths:
+        raise ValueError(f"No isotransform metrics CSV found in {stats_dir}")
+    if len(metrics_paths) > 1:
+        raise ValueError(
+            f"Expected one isotransform metrics CSV in {stats_dir}, found "
+            f"{len(metrics_paths)}"
+        )
+
+    metrics_path = metrics_paths[0]
+    df = pd.read_csv(metrics_path)
+
+    if model_name is None:
+        model_name = metrics_path.stem.replace("isotransform_metrics_", "")
+    model_name = sanitize_label(model_name)
+
+    summary_path = stats_dir / "summary_by_transform.csv"
+    if summary_path.exists():
+        summary_by_transform = pd.read_csv(summary_path)
+    else:
+        summary_by_transform = compute_summary_by_transform(df)
+
+    size_summary_path = stats_dir / "summary_by_size_transform.csv"
+    if size_summary_path.exists():
+        summary_by_size_transform = pd.read_csv(size_summary_path)
+    else:
+        summary_by_size_transform = compute_summary_by_size_transform(df)
+
+    paired_tests_path = stats_dir / "paired_tests.csv"
+    if paired_tests_path.exists():
+        paired_tests_df = pd.read_csv(paired_tests_path)
+        paired_tests = [
+            PairedTestResult(**row) for row in paired_tests_df.to_dict(orient="records")
+        ]
+    else:
+        paired_tests = run_all_paired_tests(df)
+
+    return IsotransformComparisonResults(
+        model_name=model_name,
+        df=df,
+        summary_by_transform=summary_by_transform,
+        paired_tests=paired_tests,
+        summary_by_size_transform=summary_by_size_transform,
+    )
+
+
 def compute_summary_by_transform(df: pd.DataFrame) -> pd.DataFrame:
     """Compute summary statistics grouped by transform type."""
     if df.empty:
@@ -785,7 +836,7 @@ def plot_delta_from_baseline(
             axes[idx].set_xticklabels(delta_df["transform"], rotation=45, ha="right")
             axes[idx].set_ylabel(label)
             axes[idx].set_title(f"{label} (vs Baseline)")
-            axes[idx].set_ylim(-0.5, 0.5)
+            axes[idx].set_ylim(-0.05, 0.05)
             axes[idx].grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout(rect=[0, 0.03, 1, 1])
@@ -1019,11 +1070,18 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument(
+    input_group = parser.add_mutually_exclusive_group(required=True)
+
+    input_group.add_argument(
         "--trajectory-dir",
         type=str,
-        required=True,
         help="Directory containing trajectory JSON files (base + transforms)",
+    )
+
+    input_group.add_argument(
+        "--stats-dir",
+        type=str,
+        help="Directory containing saved isotransform analysis CSVs",
     )
 
     parser.add_argument(
@@ -1049,15 +1107,21 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    traj_path = Path(args.trajectory_dir)
+    input_path = Path(args.trajectory_dir or args.stats_dir)
     output_path = Path(args.output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    results = process_isotransform_trajectories(
-        traj_path,
-        model_name=args.model_name,
-        batch_size=args.batch_size,
-    )
+    if args.stats_dir:
+        results = load_results_from_statistics_dir(
+            input_path,
+            model_name=args.model_name,
+        )
+    else:
+        results = process_isotransform_trajectories(
+            input_path,
+            model_name=args.model_name,
+            batch_size=args.batch_size,
+        )
 
     save_results(results, output_path)
     print_summary(results)

@@ -286,6 +286,20 @@ def discover_model_directories(parent_dir: Path, max_depth: int = 3) -> list[Pat
     return model_dirs
 
 
+def has_saved_statistics(stats_dir: Path) -> bool:
+    """Check whether a directory contains saved trajectory analysis CSVs."""
+    return any(stats_dir.glob("trajectory_metrics_*.csv"))
+
+
+def discover_statistics_directories(parent_dir: Path) -> list[Path]:
+    """Discover model directories containing saved trajectory analysis outputs."""
+    model_dirs = []
+    for subdir in sorted(parent_dir.iterdir()):
+        if subdir.is_dir() and has_saved_statistics(subdir):
+            model_dirs.append(subdir)
+    return model_dirs
+
+
 # =============================================================================
 # Grid State Parsing
 # =============================================================================
@@ -774,6 +788,61 @@ def process_model_trajectories(
         summary_by_size_density=summary_df,
         summary_by_distance=distance_df,
         overall_summary=overall,
+    )
+
+
+def load_results_from_statistics_dir(
+    stats_dir: Path,
+    model_name: Optional[str] = None,
+) -> ModelTrajectoryResults:
+    """Load precomputed trajectory analysis results from saved CSV outputs.
+
+    This supports re-generating summaries and figures without reprocessing
+    the raw trajectory JSON files. State-level metrics are not currently
+    persisted, so distance-density heatmaps cannot be reconstructed.
+    """
+    metrics_paths = sorted(stats_dir.glob("trajectory_metrics_*.csv"))
+    if not metrics_paths:
+        raise ValueError(f"No trajectory metrics CSV found in {stats_dir}")
+    if len(metrics_paths) > 1:
+        raise ValueError(
+            f"Expected one trajectory metrics CSV in {stats_dir}, found "
+            f"{len(metrics_paths)}"
+        )
+
+    metrics_path = metrics_paths[0]
+    df = pd.read_csv(metrics_path)
+
+    if model_name is None:
+        model_name = metrics_path.stem.replace("trajectory_metrics_", "")
+    model_name = sanitize_label(model_name)
+
+    summary_path = stats_dir / "summary_by_size_complexity.csv"
+    if summary_path.exists():
+        summary_by_size_density = pd.read_csv(summary_path)
+    else:
+        summary_by_size_density = compute_summary_by_size_density(df)
+
+    distance_path = stats_dir / "summary_by_distance.csv"
+    if distance_path.exists():
+        summary_by_distance = pd.read_csv(distance_path)
+    else:
+        summary_by_distance = pd.DataFrame()
+
+    overall_path = stats_dir / "overall_summary.json"
+    if overall_path.exists():
+        with open(overall_path, "r") as f:
+            overall_summary = json.load(f)
+    else:
+        overall_summary = compute_overall_summary(df)
+
+    return ModelTrajectoryResults(
+        model_name=model_name,
+        df=df,
+        state_df=pd.DataFrame(),
+        summary_by_size_density=summary_by_size_density,
+        summary_by_distance=summary_by_distance,
+        overall_summary=overall_summary,
     )
 
 
@@ -1491,6 +1560,8 @@ def save_results(
             metric="jsd",
             metric_label="JSD",
         )
+    else:
+        print("  Skipping distance-density heatmaps (no state-level metrics loaded)")
 
     return output_paths
 
@@ -1545,11 +1616,18 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument(
+    input_group = parser.add_mutually_exclusive_group(required=True)
+
+    input_group.add_argument(
         "--trajectory-dir",
         type=str,
-        required=True,
         help="Directory containing trajectory JSON files (or parent with model subdirs)",
+    )
+
+    input_group.add_argument(
+        "--stats-dir",
+        type=str,
+        help="Directory containing saved analysis CSVs (or parent with model subdirs)",
     )
 
     parser.add_argument(
@@ -1576,26 +1654,32 @@ def main() -> None:
     parser.add_argument(
         "--multi-model",
         action="store_true",
-        help="Process multiple models from subdirectories of trajectory-dir",
+        help="Process multiple models from subdirectories of the input directory",
     )
 
     args = parser.parse_args()
 
-    traj_path = Path(args.trajectory_dir)
+    input_path = Path(args.trajectory_dir or args.stats_dir)
     output_path = Path(args.output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     if args.multi_model:
-        # Process multiple model directories
-        model_dirs = discover_model_directories(traj_path)
-        print(f"Found {len(model_dirs)} model directories")
+        if args.stats_dir:
+            model_dirs = discover_statistics_directories(input_path)
+            print(f"Found {len(model_dirs)} model directories with saved statistics")
+        else:
+            model_dirs = discover_model_directories(input_path)
+            print(f"Found {len(model_dirs)} model directories")
 
         for model_dir in model_dirs:
             try:
-                results = process_model_trajectories(
-                    model_dir,
-                    batch_size=args.batch_size,
-                )
+                if args.stats_dir:
+                    results = load_results_from_statistics_dir(model_dir)
+                else:
+                    results = process_model_trajectories(
+                        model_dir,
+                        batch_size=args.batch_size,
+                    )
                 save_results(results, output_path)
                 print_summary(results)
             except Exception as e:
@@ -1604,12 +1688,17 @@ def main() -> None:
 
                 traceback.print_exc()
     else:
-        # Process single directory
-        results = process_model_trajectories(
-            traj_path,
-            model_name=args.model_name,
-            batch_size=args.batch_size,
-        )
+        if args.stats_dir:
+            results = load_results_from_statistics_dir(
+                input_path,
+                model_name=args.model_name,
+            )
+        else:
+            results = process_model_trajectories(
+                input_path,
+                model_name=args.model_name,
+                batch_size=args.batch_size,
+            )
         save_results(results, output_path)
         print_summary(results)
 
