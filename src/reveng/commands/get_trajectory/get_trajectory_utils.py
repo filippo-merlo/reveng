@@ -349,20 +349,17 @@ def generate_trajectory(
     terminated = False
     truncated = False
 
-    # Use safe_reset if specified, otherwise use regular reset
-    if use_safe_reset:
-        env.unwrapped.safe_reset()
-        # Re-generate the text observation after safe reset using the wrapper's render method
-        observation = env._render()
-    else:
-        observation, _ = env.reset()
-
     if skip_reset:
         # Don't reset the environment, just get the current observation
         raw_obs = env.unwrapped.gen_obs()
         observation = env.observation(raw_obs)
     else:
-        observation, _ = env.reset()
+        if use_safe_reset:
+            env.unwrapped.safe_reset()
+            raw_obs = env.unwrapped.gen_obs()
+            observation = env.observation(raw_obs)
+        else:
+            observation, _ = env.reset()
 
         # Remove the door after reset if requested
         if remove_door_from_env:
