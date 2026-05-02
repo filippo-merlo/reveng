@@ -162,6 +162,10 @@ class TrajectoryAnalysis:
         int  # Of error steps, how many had decoded-optimal in GT-optimal
     )
 
+    # Reverse recovery: taken is NOT optimal (decoded), but IS optimal (GT)
+    reverse_error_steps: int  # Steps where taken != optimal (decoded) but decoded valid
+    reverse_recovered: int  # Of those, how many had taken in GT-optimal
+
     step_analyses: list[StepAnalysis] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -169,6 +173,11 @@ class TrajectoryAnalysis:
         error_recovery_rate = (
             self.decoded_correct_on_errors / self.error_steps
             if self.error_steps > 0
+            else float("nan")
+        )
+        reverse_recovery_rate = (
+            self.reverse_recovered / self.reverse_error_steps
+            if self.reverse_error_steps > 0
             else float("nan")
         )
         return {
@@ -183,6 +192,9 @@ class TrajectoryAnalysis:
             "error_steps": self.error_steps,
             "decoded_correct_on_errors": self.decoded_correct_on_errors,
             "error_recovery_rate": error_recovery_rate,
+            "reverse_error_steps": self.reverse_error_steps,
+            "reverse_recovered": self.reverse_recovered,
+            "reverse_recovery_rate": reverse_recovery_rate,
         }
 
 
@@ -827,6 +839,12 @@ def analyze_trajectory(
         1 for s in error_steps if s.decoded_optimal_actions & s.optimal_actions_gt
     )
 
+    # Reverse recovery: taken is NOT optimal (decoded), but IS optimal (GT)
+    reverse_error_steps = [
+        s for s in step_analyses if not s.taken_is_optimal_decoded and s.decoded_valid
+    ]
+    reverse_recovered = sum(1 for s in reverse_error_steps if s.taken_is_optimal_gt)
+
     return TrajectoryAnalysis(
         trajectory_id=trajectory_id,
         grid_size=grid_size,
@@ -838,6 +856,8 @@ def analyze_trajectory(
         gt_decoded_agreement_rate=gt_decoded_agreement_rate,
         error_steps=len(error_steps),
         decoded_correct_on_errors=decoded_correct_on_errors,
+        reverse_error_steps=len(reverse_error_steps),
+        reverse_recovered=reverse_recovered,
         step_analyses=step_analyses,
     )
 
@@ -930,6 +950,8 @@ def compute_summary_by_size_complexity(
             se_gt_decoded_agreement=("gt_decoded_agreement_rate", "sem"),
             total_error_steps=("error_steps", "sum"),
             total_decoded_correct=("decoded_correct_on_errors", "sum"),
+            total_reverse_error_steps=("reverse_error_steps", "sum"),
+            total_reverse_recovered=("reverse_recovered", "sum"),
         )
         .reset_index()
     )
@@ -937,6 +959,11 @@ def compute_summary_by_size_complexity(
     # Compute error recovery rate
     summary["error_recovery_rate"] = (
         summary["total_decoded_correct"] / summary["total_error_steps"]
+    ).fillna(0)
+
+    # Compute reverse recovery rate
+    summary["reverse_recovery_rate"] = (
+        summary["total_reverse_recovered"] / summary["total_reverse_error_steps"]
     ).fillna(0)
 
     # Add Manhattan distance metrics by grouping step_df
@@ -971,6 +998,8 @@ def compute_overall_summary(
 
     total_error_steps = trajectory_df["error_steps"].sum()
     total_decoded_correct = trajectory_df["decoded_correct_on_errors"].sum()
+    total_reverse_error_steps = trajectory_df["reverse_error_steps"].sum()
+    total_reverse_recovered = trajectory_df["reverse_recovered"].sum()
 
     # Compute Manhattan distance metrics (averaging over all valid steps)
     manhattan_metrics = {
@@ -1000,6 +1029,13 @@ def compute_overall_summary(
         "overall_error_recovery_rate": (
             float(total_decoded_correct / total_error_steps)
             if total_error_steps > 0
+            else 0.0
+        ),
+        "total_reverse_error_steps": int(total_reverse_error_steps),
+        "total_reverse_recovered": int(total_reverse_recovered),
+        "overall_reverse_recovery_rate": (
+            float(total_reverse_recovered / total_reverse_error_steps)
+            if total_reverse_error_steps > 0
             else 0.0
         ),
         "manhattan_distance_metrics": manhattan_metrics,
@@ -1099,8 +1135,7 @@ def plot_accuracy_comparison(
     axes[1].set_ylim(0, 1.05)
     axes[1].grid(True, alpha=0.3)
 
-    # Error recovery by size (with error bars, only for trajectories with errors)
-    # Filter to trajectories that have error steps to compute meaningful per-trajectory rates
+    # Error recovery and reverse recovery by size
     df_with_errors = df[df["error_steps"] > 0].copy()
     if len(df_with_errors) > 0:
         error_summary = df_with_errors.groupby("grid_size").agg(
@@ -1114,11 +1149,32 @@ def plot_accuracy_comparison(
             color=MODEL_COLORS[3],
             linewidth=2,
             capsize=3,
+            label="Error Recovery",
         )
         axes[2].set_xticks(sorted(error_summary.index))
+
+    df_with_rev_errors = df[df["reverse_error_steps"] > 0].copy()
+    if len(df_with_rev_errors) > 0:
+        rev_summary = df_with_rev_errors.groupby("grid_size").agg(
+            {"reverse_recovery_rate": ["mean", "sem"]}
+        )
+        axes[2].errorbar(
+            rev_summary.index,
+            rev_summary["reverse_recovery_rate"]["mean"],
+            yerr=rev_summary["reverse_recovery_rate"]["sem"],
+            marker="s",
+            color=MODEL_COLORS[5],
+            linewidth=2,
+            capsize=3,
+            linestyle="--",
+            label="Reverse Recovery",
+        )
+        axes[2].set_xticks(sorted(rev_summary.index))
+
     axes[2].set_xlabel("Grid Size")
-    axes[2].set_ylabel("Error Recovery Rate")
-    axes[2].set_title("Error Recovery Rate by Grid Size")
+    axes[2].set_ylabel("Recovery Rate")
+    axes[2].set_title("Recovery Rates by Grid Size")
+    axes[2].legend(fontsize=7)
     axes[2].set_ylim(0, 1.05)
     axes[2].grid(True, alpha=0.3)
 
@@ -1196,7 +1252,7 @@ def plot_additional_analysis(
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
 
-    # 1. Error recovery by complexity (top-left)
+    # 1. Error recovery and reverse recovery by complexity (top-left)
     df_with_errors = trajectory_df[trajectory_df["error_steps"] > 0].copy()
     if len(df_with_errors) > 0:
         comp_error = df_with_errors.groupby("complexity").agg(
@@ -1210,10 +1266,30 @@ def plot_additional_analysis(
             color=MODEL_COLORS[3],
             linewidth=2,
             capsize=3,
+            label="Error Recovery",
         )
+
+    df_with_rev_errors = trajectory_df[trajectory_df["reverse_error_steps"] > 0].copy()
+    if len(df_with_rev_errors) > 0:
+        comp_rev = df_with_rev_errors.groupby("complexity").agg(
+            {"reverse_recovery_rate": ["mean", "sem"]}
+        )
+        axes[0, 0].errorbar(
+            comp_rev.index,
+            comp_rev["reverse_recovery_rate"]["mean"],
+            yerr=comp_rev["reverse_recovery_rate"]["sem"],
+            marker="s",
+            color=MODEL_COLORS[5],
+            linewidth=2,
+            capsize=3,
+            linestyle="--",
+            label="Reverse Recovery",
+        )
+
     axes[0, 0].set_xlabel("Complexity")
-    axes[0, 0].set_ylabel("Error Recovery Rate")
-    axes[0, 0].set_title("Error Recovery by Complexity")
+    axes[0, 0].set_ylabel("Recovery Rate")
+    axes[0, 0].set_title("Recovery Rates by Complexity")
+    axes[0, 0].legend(fontsize=7)
     axes[0, 0].set_ylim(0, 1.05)
     axes[0, 0].grid(True, alpha=0.3)
 
@@ -1426,6 +1502,17 @@ def print_summary(results: AnalysisResults) -> None:
         f"Decoded correct on errors: {overall.get('total_decoded_correct_on_errors', 0)}"
     )
     print(f"Error recovery rate: {overall.get('overall_error_recovery_rate', 0):.4f}")
+
+    print("\n--- Reverse Recovery Analysis ---")
+    print(
+        f"Total reverse error steps (taken != optimal decoded): {overall.get('total_reverse_error_steps', 0)}"
+    )
+    print(
+        f"Reverse recovered (taken is optimal GT): {overall.get('total_reverse_recovered', 0)}"
+    )
+    print(
+        f"Reverse recovery rate: {overall.get('overall_reverse_recovery_rate', 0):.4f}"
+    )
 
     print("\n--- By Grid Size ---")
     if not results.trajectory_df.empty:
