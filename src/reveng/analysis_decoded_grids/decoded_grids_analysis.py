@@ -108,6 +108,14 @@ class StepAnalysis:
     decoded_goal_prob: float
     decoded_valid: bool  # Was a valid environment decodable?
 
+    # Manhattan distance metrics
+    avg_agent_distance: float = float("nan")
+    avg_goal_distance: float = float("nan")
+    min_agent_distance: float = float("nan")
+    min_goal_distance: float = float("nan")
+    max_agent_distance: float = float("nan")
+    max_goal_distance: float = float("nan")
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for DataFrame construction."""
         return {
@@ -124,6 +132,12 @@ class StepAnalysis:
             "decoded_agent_prob": self.decoded_agent_prob,
             "decoded_goal_prob": self.decoded_goal_prob,
             "decoded_valid": self.decoded_valid,
+            "avg_agent_distance": self.avg_agent_distance,
+            "avg_goal_distance": self.avg_goal_distance,
+            "min_agent_distance": self.min_agent_distance,
+            "min_goal_distance": self.min_goal_distance,
+            "max_agent_distance": self.max_agent_distance,
+            "max_goal_distance": self.max_goal_distance,
         }
 
 
@@ -148,6 +162,10 @@ class TrajectoryAnalysis:
         int  # Of error steps, how many had decoded-optimal in GT-optimal
     )
 
+    # Reverse recovery: taken is NOT optimal (decoded), but IS optimal (GT)
+    reverse_error_steps: int  # Steps where taken != optimal (decoded) but decoded valid
+    reverse_recovered: int  # Of those, how many had taken in GT-optimal
+
     step_analyses: list[StepAnalysis] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -155,6 +173,11 @@ class TrajectoryAnalysis:
         error_recovery_rate = (
             self.decoded_correct_on_errors / self.error_steps
             if self.error_steps > 0
+            else float("nan")
+        )
+        reverse_recovery_rate = (
+            self.reverse_recovered / self.reverse_error_steps
+            if self.reverse_error_steps > 0
             else float("nan")
         )
         return {
@@ -169,6 +192,9 @@ class TrajectoryAnalysis:
             "error_steps": self.error_steps,
             "decoded_correct_on_errors": self.decoded_correct_on_errors,
             "error_recovery_rate": error_recovery_rate,
+            "reverse_error_steps": self.reverse_error_steps,
+            "reverse_recovered": self.reverse_recovered,
+            "reverse_recovery_rate": reverse_recovery_rate,
         }
 
 
@@ -250,6 +276,49 @@ def batch_file_list(files: list[Path], batch_size: int) -> Iterator[list[Path]]:
 # =============================================================================
 
 
+def get_true_positions(
+    grid_state: list[str],
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Extract true agent and goal positions from grid_state.
+
+    Args:
+        grid_state: List of strings representing the grid, where the first row
+                   contains column indices and the first column contains row indices.
+
+    Returns:
+        Tuple of (agent_position, goal_position) where each position is (row, col)
+
+    Raises:
+        ValueError: If agent or goal cannot be found in grid_state
+    """
+    if not grid_state or len(grid_state) < 2:
+        raise ValueError("grid_state must have at least 2 rows (header + data)")
+
+    agent_pos = None
+    goal_pos = None
+
+    # Skip the first row (column indices) and parse the data rows
+    for row_idx, row_str in enumerate(grid_state[1:]):  # Skip header row
+        parts = row_str.strip().split()
+        if len(parts) < 2:
+            continue
+        # First part is the row index, rest are cell values
+        row_cells = parts[1:]
+
+        for col_idx, cell in enumerate(row_cells):
+            if cell == "A":
+                agent_pos = (row_idx, col_idx)
+            elif cell == "G":
+                goal_pos = (row_idx, col_idx)
+
+    if agent_pos is None:
+        raise ValueError("Agent position 'A' not found in grid_state")
+    if goal_pos is None:
+        raise ValueError("Goal position 'G' not found in grid_state")
+
+    return agent_pos, goal_pos
+
+
 def gridstate2env(grid_state: list[str]) -> Simple2DNavigationEnv:
     """Convert a grid_state representation to a Simple2DNavigationEnv.
 
@@ -287,6 +356,116 @@ def gridstate2env(grid_state: list[str]) -> Simple2DNavigationEnv:
 # =============================================================================
 # Probe to Environment Conversion
 # =============================================================================
+
+
+def get_classified_cells(
+    probes: dict,
+    layer_key: str = "model.layers.15.output",
+) -> tuple[list[tuple[int, int, float]], list[tuple[int, int, float]]]:
+    """Extract all cells classified as agent or goal with their probabilities.
+
+    Args:
+        probes: Dictionary of probe data with keys like
+                "cognitive_map_probe_l15_s0_suffix_-3--1_mlp_1024_full_upsample_normalize_r{row}_c{col}"
+        layer_key: The layer key to extract predictions from
+
+    Returns:
+        Tuple of (agent_positions, goal_positions) where each is a list of
+        (row, col, probability) tuples sorted by probability in descending order
+    """
+    # Parse probe keys to extract grid positions and predictions
+    grid_data = {}
+
+    for probe_key, probe_value in probes.items():
+        if "_r" in probe_key and "_c" in probe_key:
+            parts = probe_key.split("_")
+            row_idx = None
+            col_idx = None
+
+            for part in parts:
+                if part.startswith("r") and part[1:].lstrip("-").isdigit():
+                    row_idx = int(part[1:])
+                elif part.startswith("c") and part[1:].lstrip("-").isdigit():
+                    col_idx = int(part[1:])
+
+            if row_idx is not None and col_idx is not None:
+                predictions = probe_value.get(layer_key, {})
+                grid_data[(row_idx, col_idx)] = predictions
+
+    # Find cells classified as agent or goal
+    agent_positions = []
+    goal_positions = []
+
+    for (row, col), predictions in grid_data.items():
+        if predictions:
+            max_class = max(predictions.items(), key=lambda x: x[1])
+            class_name, class_prob = max_class
+
+            if class_name == "agent":
+                agent_positions.append((row, col, class_prob))
+            elif class_name == "goal":
+                goal_positions.append((row, col, class_prob))
+
+    # Sort by probability in descending order
+    agent_positions.sort(key=lambda x: x[2], reverse=True)
+    goal_positions.sort(key=lambda x: x[2], reverse=True)
+
+    return agent_positions, goal_positions
+
+
+def calculate_manhattan_distance_metrics(
+    agent_cells: list[tuple[int, int, float]],
+    goal_cells: list[tuple[int, int, float]],
+    true_agent_pos: tuple[int, int],
+    true_goal_pos: tuple[int, int],
+) -> dict[str, float]:
+    """Calculate average Manhattan distance metrics for classified cells.
+
+    Args:
+        agent_cells: List of (row, col, probability) for cells classified as agent
+        goal_cells: List of (row, col, probability) for cells classified as goal
+        true_agent_pos: Ground truth agent position (row, col)
+        true_goal_pos: Ground truth goal position (row, col)
+
+    Returns:
+        Dictionary containing:
+            - avg_agent_distance: Average Manhattan distance of agent cells to true agent
+            - avg_goal_distance: Average Manhattan distance of goal cells to true goal
+            - min_agent_distance: Minimum Manhattan distance of agent cells to true agent
+            - min_goal_distance: Minimum Manhattan distance of goal cells to true goal
+            - max_agent_distance: Maximum Manhattan distance of agent cells to true agent
+            - max_goal_distance: Maximum Manhattan distance of goal cells to true goal
+    """
+    metrics = {
+        "avg_agent_distance": float("nan"),
+        "avg_goal_distance": float("nan"),
+        "min_agent_distance": float("nan"),
+        "min_goal_distance": float("nan"),
+        "max_agent_distance": float("nan"),
+        "max_goal_distance": float("nan"),
+    }
+
+    # Calculate agent metrics
+    if agent_cells:
+        agent_distances = [
+            abs(row - true_agent_pos[0]) + abs(col - true_agent_pos[1])
+            for row, col, _ in agent_cells
+        ]
+        metrics["avg_agent_distance"] = sum(agent_distances) / len(agent_distances)
+        metrics["min_agent_distance"] = float(min(agent_distances))
+        metrics["max_agent_distance"] = float(max(agent_distances))
+
+    # Calculate goal metrics
+    if goal_cells:
+        goal_distances = [
+            abs(row - true_goal_pos[0]) + abs(col - true_goal_pos[1])
+            for row, col, _ in goal_cells
+        ]
+        metrics["avg_goal_distance"] = sum(goal_distances) / len(goal_distances)
+        metrics["min_goal_distance"] = float(min(goal_distances))
+        metrics["max_goal_distance"] = float(max(goal_distances))
+
+    return metrics
 
 
 def probe2env(
@@ -542,6 +721,29 @@ def analyze_step(
         )
         decoded_valid = decoded_env is not None and bool(optimal_decoded)
 
+        # Compute Manhattan distance metrics
+        manhattan_metrics = {
+            "avg_agent_distance": float("nan"),
+            "avg_goal_distance": float("nan"),
+            "min_agent_distance": float("nan"),
+            "min_goal_distance": float("nan"),
+            "max_agent_distance": float("nan"),
+            "max_goal_distance": float("nan"),
+        }
+
+        try:
+            # Get true positions
+            true_agent_pos, true_goal_pos = get_true_positions(grid_state)
+            # Get classified cells
+            agent_cells, goal_cells = get_classified_cells(probes, layer_key=layer_key)
+            # Compute Manhattan distance metrics
+            manhattan_metrics = calculate_manhattan_distance_metrics(
+                agent_cells, goal_cells, true_agent_pos, true_goal_pos
+            )
+        except Exception:
+            # If Manhattan distance computation fails, keep NaN values
+            pass
+
         return StepAnalysis(
             step_id=step_data["step_id"],
             trajectory_id=trajectory_id,
@@ -556,6 +758,12 @@ def analyze_step(
             decoded_agent_prob=decoded_agent_prob,
             decoded_goal_prob=decoded_goal_prob,
             decoded_valid=decoded_valid,
+            avg_agent_distance=manhattan_metrics["avg_agent_distance"],
+            avg_goal_distance=manhattan_metrics["avg_goal_distance"],
+            min_agent_distance=manhattan_metrics["min_agent_distance"],
+            min_goal_distance=manhattan_metrics["min_goal_distance"],
+            max_agent_distance=manhattan_metrics["max_agent_distance"],
+            max_goal_distance=manhattan_metrics["max_goal_distance"],
         )
 
     except Exception as e:
@@ -631,6 +839,12 @@ def analyze_trajectory(
         1 for s in error_steps if s.decoded_optimal_actions & s.optimal_actions_gt
     )
 
+    # Reverse recovery: taken is NOT optimal (decoded), but IS optimal (GT)
+    reverse_error_steps = [
+        s for s in step_analyses if not s.taken_is_optimal_decoded and s.decoded_valid
+    ]
+    reverse_recovered = sum(1 for s in reverse_error_steps if s.taken_is_optimal_gt)
+
     return TrajectoryAnalysis(
         trajectory_id=trajectory_id,
         grid_size=grid_size,
@@ -642,6 +856,8 @@ def analyze_trajectory(
         gt_decoded_agreement_rate=gt_decoded_agreement_rate,
         error_steps=len(error_steps),
         decoded_correct_on_errors=decoded_correct_on_errors,
+        reverse_error_steps=len(reverse_error_steps),
+        reverse_recovered=reverse_recovered,
         step_analyses=step_analyses,
     )
 
@@ -704,7 +920,7 @@ def process_trajectories(
     step_df = pd.DataFrame([s.to_dict() for s in all_step_results])
 
     # Compute summaries
-    summary_df = compute_summary_by_size_complexity(trajectory_df)
+    summary_df = compute_summary_by_size_complexity(trajectory_df, step_df)
     overall = compute_overall_summary(trajectory_df, step_df)
 
     return AnalysisResults(
@@ -715,13 +931,15 @@ def process_trajectories(
     )
 
 
-def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
+def compute_summary_by_size_complexity(
+    trajectory_df: pd.DataFrame, step_df: pd.DataFrame
+) -> pd.DataFrame:
     """Compute summary statistics grouped by grid_size and complexity."""
-    if df.empty:
+    if trajectory_df.empty:
         return pd.DataFrame()
 
     summary = (
-        df.groupby(["grid_size", "complexity"])
+        trajectory_df.groupby(["grid_size", "complexity"])
         .agg(
             n_trajectories=("trajectory_id", "count"),
             mean_taken_optimal_gt=("taken_optimal_gt_rate", "mean"),
@@ -732,6 +950,8 @@ def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
             se_gt_decoded_agreement=("gt_decoded_agreement_rate", "sem"),
             total_error_steps=("error_steps", "sum"),
             total_decoded_correct=("decoded_correct_on_errors", "sum"),
+            total_reverse_error_steps=("reverse_error_steps", "sum"),
+            total_reverse_recovered=("reverse_recovered", "sum"),
         )
         .reset_index()
     )
@@ -740,6 +960,30 @@ def compute_summary_by_size_complexity(df: pd.DataFrame) -> pd.DataFrame:
     summary["error_recovery_rate"] = (
         summary["total_decoded_correct"] / summary["total_error_steps"]
     ).fillna(0)
+
+    # Compute reverse recovery rate
+    summary["reverse_recovery_rate"] = (
+        summary["total_reverse_recovered"] / summary["total_reverse_error_steps"]
+    ).fillna(0)
+
+    # Add Manhattan distance metrics by grouping step_df
+    if not step_df.empty:
+        manhattan_summary = (
+            step_df.groupby(["grid_size", "complexity"])
+            .agg(
+                avg_agent_distance=("avg_agent_distance", "mean"),
+                avg_goal_distance=("avg_goal_distance", "mean"),
+                min_agent_distance=("min_agent_distance", "mean"),
+                min_goal_distance=("min_goal_distance", "mean"),
+                max_agent_distance=("max_agent_distance", "mean"),
+                max_goal_distance=("max_goal_distance", "mean"),
+            )
+            .reset_index()
+        )
+        # Merge with summary
+        summary = summary.merge(
+            manhattan_summary, on=["grid_size", "complexity"], how="left"
+        )
 
     return summary
 
@@ -754,6 +998,18 @@ def compute_overall_summary(
 
     total_error_steps = trajectory_df["error_steps"].sum()
     total_decoded_correct = trajectory_df["decoded_correct_on_errors"].sum()
+    total_reverse_error_steps = trajectory_df["reverse_error_steps"].sum()
+    total_reverse_recovered = trajectory_df["reverse_recovered"].sum()
+
+    # Compute Manhattan distance metrics (averaging over all valid steps)
+    manhattan_metrics = {
+        "avg_agent_distance": float(step_df["avg_agent_distance"].mean()),
+        "avg_goal_distance": float(step_df["avg_goal_distance"].mean()),
+        "min_agent_distance": float(step_df["min_agent_distance"].mean()),
+        "min_goal_distance": float(step_df["min_goal_distance"].mean()),
+        "max_agent_distance": float(step_df["max_agent_distance"].mean()),
+        "max_goal_distance": float(step_df["max_goal_distance"].mean()),
+    }
 
     return {
         "n_trajectories": int(len(trajectory_df)),
@@ -775,6 +1031,14 @@ def compute_overall_summary(
             if total_error_steps > 0
             else 0.0
         ),
+        "total_reverse_error_steps": int(total_reverse_error_steps),
+        "total_reverse_recovered": int(total_reverse_recovered),
+        "overall_reverse_recovery_rate": (
+            float(total_reverse_recovered / total_reverse_error_steps)
+            if total_reverse_error_steps > 0
+            else 0.0
+        ),
+        "manhattan_distance_metrics": manhattan_metrics,
     }
 
 
@@ -871,8 +1135,7 @@ def plot_accuracy_comparison(
     axes[1].set_ylim(0, 1.05)
     axes[1].grid(True, alpha=0.3)
 
-    # Error recovery by size (with error bars, only for trajectories with errors)
-    # Filter to trajectories that have error steps to compute meaningful per-trajectory rates
+    # Error recovery and reverse recovery by size
     df_with_errors = df[df["error_steps"] > 0].copy()
     if len(df_with_errors) > 0:
         error_summary = df_with_errors.groupby("grid_size").agg(
@@ -886,11 +1149,32 @@ def plot_accuracy_comparison(
             color=MODEL_COLORS[3],
             linewidth=2,
             capsize=3,
+            label="Error Recovery",
         )
         axes[2].set_xticks(sorted(error_summary.index))
+
+    df_with_rev_errors = df[df["reverse_error_steps"] > 0].copy()
+    if len(df_with_rev_errors) > 0:
+        rev_summary = df_with_rev_errors.groupby("grid_size").agg(
+            {"reverse_recovery_rate": ["mean", "sem"]}
+        )
+        axes[2].errorbar(
+            rev_summary.index,
+            rev_summary["reverse_recovery_rate"]["mean"],
+            yerr=rev_summary["reverse_recovery_rate"]["sem"],
+            marker="s",
+            color=MODEL_COLORS[5],
+            linewidth=2,
+            capsize=3,
+            linestyle="--",
+            label="Reverse Recovery",
+        )
+        axes[2].set_xticks(sorted(rev_summary.index))
+
     axes[2].set_xlabel("Grid Size")
-    axes[2].set_ylabel("Error Recovery Rate")
-    axes[2].set_title("Error Recovery Rate by Grid Size")
+    axes[2].set_ylabel("Recovery Rate")
+    axes[2].set_title("Recovery Rates by Grid Size")
+    axes[2].legend(fontsize=7)
     axes[2].set_ylim(0, 1.05)
     axes[2].grid(True, alpha=0.3)
 
@@ -968,7 +1252,7 @@ def plot_additional_analysis(
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
 
-    # 1. Error recovery by complexity (top-left)
+    # 1. Error recovery and reverse recovery by complexity (top-left)
     df_with_errors = trajectory_df[trajectory_df["error_steps"] > 0].copy()
     if len(df_with_errors) > 0:
         comp_error = df_with_errors.groupby("complexity").agg(
@@ -982,10 +1266,30 @@ def plot_additional_analysis(
             color=MODEL_COLORS[3],
             linewidth=2,
             capsize=3,
+            label="Error Recovery",
         )
+
+    df_with_rev_errors = trajectory_df[trajectory_df["reverse_error_steps"] > 0].copy()
+    if len(df_with_rev_errors) > 0:
+        comp_rev = df_with_rev_errors.groupby("complexity").agg(
+            {"reverse_recovery_rate": ["mean", "sem"]}
+        )
+        axes[0, 0].errorbar(
+            comp_rev.index,
+            comp_rev["reverse_recovery_rate"]["mean"],
+            yerr=comp_rev["reverse_recovery_rate"]["sem"],
+            marker="s",
+            color=MODEL_COLORS[5],
+            linewidth=2,
+            capsize=3,
+            linestyle="--",
+            label="Reverse Recovery",
+        )
+
     axes[0, 0].set_xlabel("Complexity")
-    axes[0, 0].set_ylabel("Error Recovery Rate")
-    axes[0, 0].set_title("Error Recovery by Complexity")
+    axes[0, 0].set_ylabel("Recovery Rate")
+    axes[0, 0].set_title("Recovery Rates by Complexity")
+    axes[0, 0].legend(fontsize=7)
     axes[0, 0].set_ylim(0, 1.05)
     axes[0, 0].grid(True, alpha=0.3)
 
@@ -1199,6 +1503,17 @@ def print_summary(results: AnalysisResults) -> None:
     )
     print(f"Error recovery rate: {overall.get('overall_error_recovery_rate', 0):.4f}")
 
+    print("\n--- Reverse Recovery Analysis ---")
+    print(
+        f"Total reverse error steps (taken != optimal decoded): {overall.get('total_reverse_error_steps', 0)}"
+    )
+    print(
+        f"Reverse recovered (taken is optimal GT): {overall.get('total_reverse_recovered', 0)}"
+    )
+    print(
+        f"Reverse recovery rate: {overall.get('overall_reverse_recovery_rate', 0):.4f}"
+    )
+
     print("\n--- By Grid Size ---")
     if not results.trajectory_df.empty:
         size_summary = results.trajectory_df.groupby("grid_size").agg(
@@ -1230,14 +1545,14 @@ def main() -> None:
     parser.add_argument(
         "--base-dir",
         type=str,
-        default="data/trajectories_test_full_with_probes/trajectories_test_full_with_probes/layer15/mlp_general/pre_reasoning",
+        default="data/pre_reasoning",
         help="Base directory containing size subdirectories with trajectory files",
     )
 
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="src/reveng/analysis_decoded_grids/outputs",
+        default="outputs",
         help="Directory to save analysis outputs",
     )
 
