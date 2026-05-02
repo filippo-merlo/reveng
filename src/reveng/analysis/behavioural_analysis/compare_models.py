@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from reveng.analysis.analysis_utils import (
+from reveng.analysis.behavioural_analysis.analysis_utils import (
     CalibrationMetrics,
     ControlledAnalysisResult,
     DistanceToGoalMetrics,
@@ -194,7 +194,9 @@ def load_model_from_metadata(
         ModelResults for the model
     """
     # Import here to avoid circular dependency
-    from reveng.analysis.uncertainty_analysis import process_all_grids
+    from reveng.analysis.behavioural_analysis.uncertainty_analysis import (
+        process_all_grids,
+    )
 
     if model_name is None:
         model_name = sanitize_label(metadata_dir.name)

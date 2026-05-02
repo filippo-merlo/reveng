@@ -12,7 +12,7 @@ import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
 
-from reveng.analysis.analysis_utils import (
+from reveng.analysis.behavioural_analysis.analysis_utils import (
     CellMetrics,
     ControlledAnalysisResult,
     DistanceToGoalMetrics,
@@ -124,7 +124,7 @@ def _process_grid_for_analysis(
 
     This is a local wrapper that uses the shared utilities.
     """
-    from reveng.analysis.analysis_utils import (
+    from reveng.analysis.behavioural_analysis.analysis_utils import (
         ACTION_ID_TO_NAME,
         compute_optimal_actions_and_distances,
     )
