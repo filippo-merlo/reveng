@@ -9,7 +9,7 @@ from reveng.environment_generator.env_transformations import (
     StartGoalSwap,
     TransposeEnv,
 )
-from reveng.environment_generator.key_minigrid import CoinMinigridEnv
+from reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
 from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
 from reveng.environment_generator.utils import remove_door
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
@@ -112,7 +112,7 @@ def plot_multiple_environments():
 
     # 1. Key/Coin environment (CoinMinigridEnv)
     print("\nGenerating Key environment figures...")
-    key_env = CoinMinigridEnv(size=9, render_mode=None)
+    key_env = Key2PathMinigridEnv(size=9, render_mode=None)
     for i in range(num_instances):
         key_env.reset()
         frame = key_env.get_frame(highlight=False)
