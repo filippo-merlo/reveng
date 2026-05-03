@@ -57,6 +57,55 @@ The repository contains two families of procedurally generated MiniGrid environm
 
 ## Trajectory Collection
 
+### Full-observability grid worlds
+
+The full-observability navigation datasets used for the main grid-world experiments are available on Hugging Face:
+
+- [`project-telos/trajectories_test_full`](https://huggingface.co/datasets/project-telos/trajectories_test_full) — base-environment trajectories.
+- [`project-telos/trajectories_full_isodifficulty_transforms`](https://huggingface.co/datasets/project-telos/trajectories_full_isodifficulty_transforms) — base trajectories plus iso-difficulty transformed grids.
+
+The base-environment trajectories contain 10 base-environment examples for each grid size and complexity pair:
+
+```bash
+reveng-cli get_trajectories \
+    --grid-sizes 7 9 11 13 15 \
+    --grid-complexities 0.0 0.2 0.4 0.6 0.8 1.0 \
+    --model-names "together_ai/openai/gpt-oss-20b" \
+    --output-dir "./trajectories_test_full" \
+    --num-examples 10 \
+    --enable-dynamic-max-steps True \
+    --max-tokens 10000 \
+    --temperature 0.7 \
+    --top-p 0.95 \
+    --top-logprobs 5 \
+    --reasoning-effort "low"
+```
+
+The iso-difficulty transform dataset were created with `get_trajectories_multiple_per_grid`, which creates multiple rollouts on the same saved grid layout. We use 10 grid layouts per `(size, complexity)` pair and 10 trajectories per saved grid, for the base grid plus the four default iso-difficulty transforms: `RotateEnv`, `ReflectEnv`, `TransposeEnv`, and `StartGoalSwap`.
+
+```bash
+reveng-cli get_trajectories_multiple_per_grid \
+    --grid-sizes 7 9 11 13 15 \
+    --grid-complexities 0.0 0.2 0.4 0.6 0.8 1.0 \
+    --model-names "together_ai/openai/gpt-oss-20b" \
+    --output-dir "./trajectories_full_isodifficulty_transforms" \
+    --num-grids-per-config 10 \
+    --num-trajectories-per-grid 10 \
+    --include-transforms \
+    --enable-dynamic-max-steps True \
+    --max-tokens 10000 \
+    --temperature 0.7 \
+    --top-p 0.95 \
+    --top-logprobs 5 \
+    --reasoning-effort "low"
+```
+
+This command saves grid-layout files with names like
+`together_ai_openai_gpt-oss-20b_size11_comp0.0_grid0_base.json` and trajectory files with names like
+`together_ai_openai_gpt-oss-20b_size11_comp0.0_grid0_base_traj0.json`.
+
+### Key-door environments
+
 Trajectories for the **Key-Door** environment were collected with:
 
 ```bash
