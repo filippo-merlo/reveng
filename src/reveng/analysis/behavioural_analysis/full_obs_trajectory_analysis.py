@@ -61,12 +61,12 @@ NUM_TRAJECTORIES_PER_GRID = 10
 PAPER_RC = {
     "font.family": "serif",
     "font.size": 20,
-    "axes.titlesize": 20,
-    "axes.labelsize": 20,
+    "axes.titlesize": 21,
+    "axes.labelsize": 21,
     "xtick.labelsize": 18,
     "ytick.labelsize": 18,
-    "legend.fontsize": 20,
-    "figure.titlesize": 20,
+    "legend.fontsize": 21,
+    "figure.titlesize": 21,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.linewidth": 0.8,
@@ -1158,7 +1158,7 @@ def plot_metrics_by_distance(
     # axes[1].set_title("Accuracy vs Distance")
     axes[0].set_ylim(0, 1.05)
     axes[0].grid(True, alpha=0.3)
-    axes[0].legend(fontsize=7, loc="lower left", frameon=False)
+    axes[0].legend(fontsize=16, loc="lower left", frameon=True)
 
     # JSD vs distance
     axes[1].scatter(
@@ -1180,7 +1180,7 @@ def plot_metrics_by_distance(
     axes[1].set_ylabel("Mean JSD")
     # axes[0].set_title("JSD vs Distance")
     axes[1].grid(True, alpha=0.3)
-    axes[1].legend(fontsize=7, loc="upper left", frameon=False)
+    axes[1].legend(fontsize=16, loc="upper left", frameon=True)
 
     # Set explicit x-axis limits and ticks for all panels
     # The data is capped at max_distance, so we set appropriate limits
@@ -1443,12 +1443,15 @@ def plot_distance_density_heatmap(
             origin="lower",
         )
 
-        # X-axis: density
-        ax.set_xticks(range(len(density_values)))
-        ax.set_xticklabels([f"{c:.1f}" for c in density_values], fontsize=10)
+        # X-axis: density (every other tick to reduce clutter)
+        x_tick_pos = range(0, len(density_values), 2)
+        ax.set_xticks(x_tick_pos)
+        ax.set_xticklabels(
+            [f"{density_values[i]:.1f}" for i in x_tick_pos], fontsize=21
+        )
         # ax.set_xlabel("Density", fontsize=20)
 
-        ax.set_title(f"{size}x{size}", fontsize=20, fontweight="bold")
+        ax.set_title(f"{size}x{size}", fontsize=26, fontweight="bold")
 
         # Add grid lines between cells (minor ticks)
         ax.set_xticks(np.arange(-0.5, len(density_values), 1), minor=True)
@@ -1459,16 +1462,16 @@ def plot_distance_density_heatmap(
 
         # Y-axis: distance bins (only show labels for first subplot)
         if idx == 0:
-            ax.set_ylabel("Distance to Goal", fontsize=20)
+            ax.set_ylabel("Distance to Goal", fontsize=32)
         else:
             ax.tick_params(labelleft=False)
 
         if idx == 2:
-            ax.set_xlabel("Density", fontsize=20)
+            ax.set_xlabel("Density", fontsize=32)
 
     # Set y-tick labels on first axis (do this after loop to avoid sharey issues)
     axes[0].set_yticks(range(len(distance_labels)))
-    axes[0].set_yticklabels(distance_labels, fontsize=14)
+    axes[0].set_yticklabels(distance_labels, fontsize=21)
 
     # Adjust layout first to position subplots
     plt.subplots_adjust(top=0.92, wspace=0.08, left=0.06, right=0.88)
@@ -1476,7 +1479,7 @@ def plot_distance_density_heatmap(
     # Add colorbar in dedicated axes on the right (doesn't steal space from subplots)
     cbar_ax = fig.add_axes([0.91, 0.15, 0.015, 0.65])  # [left, bottom, width, height]
     cbar = fig.colorbar(im, cax=cbar_ax)
-    cbar.set_label(metric_label, fontsize=20)
+    cbar.set_label(metric_label, fontsize=32)
 
     output_path = save_figure(
         fig, output_dir, f"heatmap_{metric}_by_distance_complexity"
