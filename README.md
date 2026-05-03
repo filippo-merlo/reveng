@@ -31,6 +31,30 @@ cp .env.example .env
 # then edit .env and set TOGETHER_AI_API_KEY=...
 ```
 
+## MiniGrid Environments
+
+The repository contains two families of procedurally generated MiniGrid environments, both implemented under `src/reveng/environment_generator/`.
+
+**Grid worlds with varying wall density.** Single agent and goal on an `N × N` grid, parametrized by a wall-density coefficient `d ∈ [0, 1]`: at `d = 0` the grid is fully open, and at `d = 1` it becomes a maze with no circular paths. Intermediate values interpolate between these extremes. These environments are used for the core behavioural and probing experiments.
+
+<p align="center">
+  <img src="base_environments.png" alt="Base maze environments at increasing wall-density d from 0.0 to 1.0." width="700"/>
+</p>
+
+<p align="center"><em><strong>Grid worlds with increasing wall density d, from fully open grids (d = 0) to maze-like grids with no circular paths (d = 1).</strong></em></p>
+
+**Grid world variants with instrumental and implicit goals.** Rooms-style layouts in which a key may or may not be required to reach the goal, used to probe whether the agent picks up keys *instrumentally* (when needed) versus *implicitly* (when irrelevant). Three variants:
+
+- **KeyDoorEnv** — the agent must pick up the key and unlock the door to reach the goal.
+- **KeyNoDoorEnv** — same layout, but the door is removed, so the key has no utility.
+- **2PathKeyEnv** — two optimal paths to the goal, one of which passes through a key that has no utility.
+
+<p align="center">
+  <img src="door_key_environments.png" alt="Key-door environment variants: KeyDoorEnv, KeyNoDoorEnv, and 2PathKeyEnv." width="400"/>
+</p>
+
+<p align="center"><em><strong>Grid world variants with instrumental and implicit goals.</strong></em></p>
+
 ## Trajectory Collection
 
 Trajectories for the **Key-Door** environment were collected with:
