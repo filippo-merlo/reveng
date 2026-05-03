@@ -8,6 +8,12 @@
 
 > **Abstract:** Understanding whether and how language model agents pursue goals is essential for ensuring the safety of AI systems deployed to act autonomously in the world. In this work, we study goal-directedness in a language model agent, GPT-OSS-20B, as it navigates procedurally generated 2D grid environments. We operationalize goal-directedness behaviourally--through the optimality of an agent's actions and through its robustness to environment perturbations--and representationally--by probing the agent's internal activations for evidence of structured spatial knowledge. Our behavioural evaluation reveals that GPT-OSS-20B generally acts as a goal-directed agent, navigating towards the goal across a range of grid sizes with above-chance optimality. Representationally, linear and MLP probes trained on the agent's residual stream activations at intermediate layers uncover internal representations that partially encode the spatial layout of the environment, including the positions of walls, the goal, and the agent itself. Taken together, our results indicate that GPT-OSS-20B can act as a goal-directed agent through reliance on internal representations that partially but non-trivially encode the spatial features of its environment.
 
+<p align="center">
+  <img src="method.png" alt="Method overview: (A) iso-difficulty grid transform, (B) prompt-conditioned LLM rollout in the grid environment, (C) cognitive-map probes on pre- and post-reasoning residual stream activations." width="300"/>
+</p>
+
+<p align="center"><em><strong>Overview of our goal-directedness analysis.</strong> A: We evaluate how iso-difficulty transforms affect agent trajectories that agree or disagree with the optimal policy. B: We prompt an LLM-based agent to reason and act over the fully-observable grid setup, extracting its pre- and post-reasoning activations at intermediate layers. C: We probe the agent's beliefs over goal distance, planned actions and reconstruct cognitive maps for the current grid state.</em></p>
+
 ## Installation
 
 Requires Python ≥ 3.12 and [`uv`](https://docs.astral.sh/uv/).
