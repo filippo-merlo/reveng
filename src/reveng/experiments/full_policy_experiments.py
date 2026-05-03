@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from reveng.agents import LLMAgent
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.policy_inspector.policy_elicitation import (
+from reveng.experiments.policy_elicitation import (
     elicit_policy,
 )
 

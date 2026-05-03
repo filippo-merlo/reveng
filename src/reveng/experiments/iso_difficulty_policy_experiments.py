@@ -21,7 +21,7 @@ from reveng.environment_generator.env_transformations import (
     StartGoalSwap,
     TransposeEnv,
 )
-from reveng.policy_inspector.policy_elicitation import (
+from reveng.experiments.policy_elicitation import (
     elicit_policy,
 )
 
