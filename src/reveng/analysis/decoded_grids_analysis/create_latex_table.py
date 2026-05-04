@@ -14,20 +14,6 @@ def create_latex_table():
     for col in numeric_cols:
         df[col] = df[col].round(3)
 
-    # Select key metrics
-    key_metrics = [
-        "mean_taken_optimal_gt",
-        "mean_taken_optimal_decoded",
-        "mean_gt_decoded_agreement",
-        "error_recovery_rate",
-        "avg_agent_distance",
-        "avg_goal_distance",
-        "min_agent_distance",
-        "min_goal_distance",
-        "max_agent_distance",
-        "max_goal_distance",
-    ]
-
     # Filter for recovery calculation: only rows where GT wasn't optimal
     df_for_recovery = df[df["mean_taken_optimal_gt"] < 1.0].copy()
 

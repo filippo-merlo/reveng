@@ -55,7 +55,7 @@ if __name__ == "__main__":
         help="LLM model name/path (required if --agent-type=llm). Example: 'gpt-oss-20b' or 'meta-llama/Llama-2-7b-hf'",
     )
     args = parser.parse_args()
-    
+
     # Validate LLM model is provided if using LLM agent
     if args.agent_type == "llm" and args.llm_model is None:
         parser.error("--llm-model is required when --agent-type=llm")
@@ -78,11 +78,11 @@ if __name__ == "__main__":
         height = partially_observable_env.unwrapped.height
         print(f"Width: {width}, Height: {height}")
         po_observation_str, info = partially_observable_env.reset(seed=args.seed)
-        
+
         # Extract start and goal positions from the base environment
         start_pos = tuple(env.agent_pos)
         goal_pos = tuple(env.goal_pos)
-        
+
         print(f"Partially observable observation: {po_observation_str}")
         po_template_path = (
             Path(__file__).parent.parent / "templates" / "grid_partial_observability.j2"
@@ -115,13 +115,15 @@ if __name__ == "__main__":
         elif args.agent_type == "llm":
             print(f"Generating a trajectory from LLM: {args.llm_model}")
             from reveng.agents.llm_agent import LLMAgent
-            agent = LLMAgent(
-                model_name=args.llm_model,
-                name="LLM Agent"
-            )
+
+            agent = LLMAgent(model_name=args.llm_model, name="LLM Agent")
             # Use full observability for LLM (so LLM sees complete grid)
-            trajectory_env = partially_observable_env  # Still use wrapped env for consistency
-            trajectory_observation = fo_observation_str  # But use full observability observation
+            trajectory_env = (
+                partially_observable_env  # Still use wrapped env for consistency
+            )
+            trajectory_observation = (
+                fo_observation_str  # But use full observability observation
+            )
         else:
             raise ValueError(f"Unknown agent type: {args.agent_type}")
 
@@ -137,7 +139,7 @@ if __name__ == "__main__":
             print(f"Optimal trajectory length: {trajectory_length}")
         else:
             print(f"LLM trajectory length: {trajectory_length}")
-        
+
         # Extract action sequence from trajectory steps
         action_sequence = [int(step.action) for step in trajectory.steps]
         action_sequence_json = json.dumps(action_sequence)
@@ -215,9 +217,11 @@ if __name__ == "__main__":
                     ]
                 )
                 # Extract action sequence from current step onwards
-                remaining_actions = [int(step.action) for step in trajectory.steps[step_idx:]]
+                remaining_actions = [
+                    int(step.action) for step in trajectory.steps[step_idx:]
+                ]
                 remaining_actions_json = json.dumps(remaining_actions)
-                
+
                 if args.decoder_training_only:
                     # Only save essential columns for decoder training
                     results.append(
@@ -242,8 +246,7 @@ if __name__ == "__main__":
                             "fo_cell_types": fo_cell_types,
                             "po_cell_types": po_cell_types,
                             "classes_map": repr(partially_observable_env.grid_cells),
-                            "optimal_trajectory_length": trajectory_length
-                            - step_idx,
+                            "optimal_trajectory_length": trajectory_length - step_idx,
                             "trajectory_step": step_idx,
                             "action_sequence": remaining_actions_json,
                             "start_pos": str(start_pos),

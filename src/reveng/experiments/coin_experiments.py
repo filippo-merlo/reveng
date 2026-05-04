@@ -13,7 +13,7 @@ from reveng.environment_generator.coin_minigrid import CoinMinigridEnv
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
-from reveng.policy_inspector.policy_elicitation import generate_one_trajectory
+from reveng.experiments.policy_elicitation import generate_one_trajectory
 from reveng.environment_generator.utils import remove_coin, clone_env
 
 

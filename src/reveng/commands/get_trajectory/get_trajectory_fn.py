@@ -794,6 +794,7 @@ def get_trajectory_key_door_env(
             max_steps=max_steps_per_trajectory,
             rooms_per_side=rooms_per_side,
         )
+        base_env_unwrapped.reset()
     base_env = FullObservabilityTextWrapper(base_env_unwrapped)
 
     # Get template path

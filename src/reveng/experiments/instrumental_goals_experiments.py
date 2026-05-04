@@ -13,7 +13,7 @@ from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
 from reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
-from reveng.policy_inspector.policy_elicitation import generate_one_trajectory
+from reveng.experiments.policy_elicitation import generate_one_trajectory
 
 
 # Default configuration parameters

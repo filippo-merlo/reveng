@@ -33,7 +33,7 @@ import pandas as pd
 from scipy import stats
 from tqdm import tqdm
 
-from reveng.analysis.analysis_utils import (
+from reveng.analysis.behavioural_analysis.analysis_utils import (
     LightweightTrajectory,
     OptimalActionSet,
     TrajectoryGridParams,

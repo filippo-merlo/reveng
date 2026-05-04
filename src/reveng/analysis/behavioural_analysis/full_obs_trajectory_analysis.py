@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from reveng.analysis.analysis_utils import (
+from reveng.analysis.behavioural_analysis.analysis_utils import (
     ACTION_ID_TO_NAME,
     ACTION_NAME_TO_ID,
     ActionDist,

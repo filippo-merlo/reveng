@@ -26,7 +26,7 @@ from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 from reveng.environment_generator.env_transformations import (
     IsoDifficultyTransformationFactory,
 )
-from reveng.policy_inspector.policy_elicitation import elicit_policy
+from reveng.experiments.policy_elicitation import elicit_policy
 from reveng.trajectory_generator.trajectory_generator import generate_trajectories
 
 

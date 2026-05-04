@@ -14,7 +14,7 @@ from reveng.agents.llm_agent import (
 )
 from reveng.datatypes import CustomJSONEncoder
 from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.policy_inspector.policy_elicitation import collect_trajectories
+from reveng.experiments.policy_elicitation import collect_trajectories
 
 
 def remove_already_processed_environments(
