@@ -25,8 +25,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.utils import compute_optimal_actions_from_position
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import compute_optimal_actions_from_position
 
 # =============================================================================
 # Constants

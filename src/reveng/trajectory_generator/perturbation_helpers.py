@@ -254,7 +254,7 @@ def generate_trajectory_with_perturbations(
     Returns:
         Trajectory object with additional perturbation metadata
     """
-    from reveng.datatypes import Step, Trajectory
+    from papers.papers_code.reveng.src.reveng.datatypes import Step, Trajectory
 
     steps = []
     total_reward = 0.0

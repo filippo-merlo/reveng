@@ -2,17 +2,17 @@ import os
 
 import matplotlib.pyplot as plt
 
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.env_transformations import (
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.env_transformations import (
     ReflectEnv,
     RotateEnv,
     StartGoalSwap,
     TransposeEnv,
 )
-from reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
-from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
-from reveng.environment_generator.utils import remove_door
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import remove_door
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
 

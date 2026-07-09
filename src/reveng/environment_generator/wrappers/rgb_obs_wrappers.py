@@ -1,6 +1,6 @@
 import numpy as np
 from gymnasium import spaces
-from reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
 
 
 class OmnidirectionalFogOfWarRGBImgObsWrapper(FogOfWarWrapper):

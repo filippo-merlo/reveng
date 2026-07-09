@@ -14,18 +14,18 @@ from huggingface_hub import CommitOperationAdd, HfApi, login
 from litellm import completion, completion_cost
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from reveng.agents.alpha_start_agent import AlphaStarAgent
-from reveng.agents.llm_agent import LLMAgent
-from reveng.datatypes import Step, Trajectory
-from reveng.environment_generator.env_transformations import (
+from papers.papers_code.reveng.src.reveng.agents.alpha_start_agent import AlphaStarAgent
+from papers.papers_code.reveng.src.reveng.agents.llm_agent import LLMAgent
+from papers.papers_code.reveng.src.reveng.datatypes import Step, Trajectory
+from papers.papers_code.reveng.src.reveng.environment_generator.env_transformations import (
     EnvTransformation,
     IsoDifficultyTransformationFactory,
 )
-from reveng.environment_generator.utils import remove_door
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import remove_door
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
-from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
+from papers.papers_code.reveng.src.reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
 
 logger = logging.getLogger(__file__)
 
@@ -399,6 +399,7 @@ def generate_trajectory(
             **generation_kwargs,
         )
         final_output = full_output.choices[0].message.content
+        reasoning_content = getattr(full_output.choices[0].message, "reasoning_content", None)
         action, action_name = parse_action(final_output)
         logprobs_serialized = agent._finalize_cost_and_logprobs(
             cost, full_output, generation_kwargs.get("top_logprobs") is not None
@@ -407,9 +408,12 @@ def generate_trajectory(
         if verbose:
             print("Output text:", final_output)
             print("Predicted action:", action_name)
+            if reasoning_content:
+                print("Reasoning trace:", reasoning_content)
 
         metadata = agent._build_base_metadata(action, cost, logprobs_serialized)
         metadata["action"] = action_name
+        metadata["reasoning_content"] = reasoning_content
 
         # Capture carrying_key status before taking the step
         base_env = getattr(env, "unwrapped", env)

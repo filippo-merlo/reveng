@@ -9,7 +9,7 @@ from minigrid.core.grid import Grid
 from minigrid.core.world_object import Goal, Wall
 from minigrid.minigrid_env import MiniGridEnv
 
-from reveng.environment_generator.utils import (
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import (
     clone_env,
     compute_optimal_path_length,
     get_all_dead_ends,
@@ -447,7 +447,7 @@ class IsoDifficultyTransformationFactory:
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+    from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
     # Create a sample environment
     print("Creating original environment...")

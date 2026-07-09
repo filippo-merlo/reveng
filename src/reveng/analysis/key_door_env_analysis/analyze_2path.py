@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 import numpy as np
-from reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
-from reveng.environment_generator.utils import (
+from papers.papers_code.reveng.src.reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import (
     compute_optimal_actions_from_position,
     replace_key_with_goal,
     remove_key,

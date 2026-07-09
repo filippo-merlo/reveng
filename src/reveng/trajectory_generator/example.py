@@ -39,15 +39,15 @@ import time
 
 # Third-party imports
 import minigrid.wrappers as mg_wrappers
-from reveng.trajectory_generator.perturbations import apply_additional_cycle
+from papers.papers_code.reveng.src.reveng.trajectory_generator.perturbations import apply_additional_cycle
 
 # Project imports
-import reveng.environment_generator.custom_minigrid as custom_minigrid
-import reveng.environment_generator.wrappers.rgb_obs_wrappers as rgb_wrappers
-import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
-import reveng.agents as agents
-import reveng.trajectory_generator.trajectory_generator as traj_gen
-from reveng.trajectory_generator.trajectory_generator import visualize_trajectory
+import papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid as custom_minigrid
+import papers.papers_code.reveng.src.reveng.environment_generator.wrappers.rgb_obs_wrappers as rgb_wrappers
+import papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
+import papers.papers_code.reveng.src.reveng.agents as agents
+import papers.papers_code.reveng.src.reveng.trajectory_generator.trajectory_generator as traj_gen
+from papers.papers_code.reveng.src.reveng.trajectory_generator.trajectory_generator import visualize_trajectory
 
 
 def build_wrapped_env(

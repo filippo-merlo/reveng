@@ -12,9 +12,9 @@ import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from reveng.agents.llm_agent import LLMAgent
-from reveng.commands.get_trajectory.compact_json_encoder import CompactJSONEncoder
-from reveng.commands.get_trajectory.get_trajectory_utils import (
+from papers.papers_code.reveng.src.reveng.agents.llm_agent import LLMAgent
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.compact_json_encoder import CompactJSONEncoder
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.get_trajectory_utils import (
     DEFAULT_TRANSFORM_NAMES,
     annotate_output_tokens,
     generate_trajectory,
@@ -24,14 +24,14 @@ from reveng.commands.get_trajectory.get_trajectory_utils import (
     upload_files_to_huggingface,
     upload_to_huggingface,
 )
-from reveng.commands.get_trajectory.rate_limiter import (
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.rate_limiter import (
     RateLimiter,
 )
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
-from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
-from reveng.environment_generator.utils import remove_key
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.key_minigrid import Key2PathMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import remove_key
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
 
@@ -234,6 +234,7 @@ def get_trajectory(
         step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
         step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
         step_dic["agent_action"] = traj_step.metadata["action"]
+        step_dic["reasoning_content"] = traj_step.metadata.get("reasoning_content")
 
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
@@ -663,6 +664,7 @@ def get_trajectory_no_key_env(
             step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
         step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
         step_dic["agent_action"] = traj_step.metadata["action"]
+        step_dic["reasoning_content"] = traj_step.metadata.get("reasoning_content")
 
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)
@@ -940,6 +942,7 @@ def get_trajectory_key_door_env(
             step_dic["prompt_suffix_tokens"] = prompt["prompt_suffix_tokens"]
         step_dic["prompt_suffix_n_tokens"] = len(step_dic["prompt_suffix_tokens"])
         step_dic["agent_action"] = traj_step.metadata["action"]
+        step_dic["reasoning_content"] = traj_step.metadata.get("reasoning_content")
 
         out_tokens = [t["token"] for t in traj_step.metadata["logprobs"]]
         step_dic["output_text"] = tokenizer.convert_tokens_to_string(out_tokens)

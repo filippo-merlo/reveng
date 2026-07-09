@@ -15,7 +15,7 @@ from typing import Dict
 
 from tqdm import tqdm
 
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 
 def generate_baseline(

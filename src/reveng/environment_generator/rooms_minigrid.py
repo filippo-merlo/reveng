@@ -1,7 +1,7 @@
 import random
 from minigrid.core.grid import Grid
 from minigrid.core.world_object import Goal, Wall, Door, Key
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 
 class RoomsMinigridEnv(Simple2DNavigationEnv):
@@ -492,10 +492,10 @@ class RoomsMinigridEnv(Simple2DNavigationEnv):
 
 if __name__ == "__main__":
     import pygame
-    from reveng.environment_generator.wrappers.text_obs_wrapper import (
+    from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
         FullObservabilityTextWrapper,
     )
-    from reveng.environment_generator.utils import remove_door
+    from papers.papers_code.reveng.src.reveng.environment_generator.utils import remove_door
 
     # Manual control for 4-Room Environment (2x2)
     print("--- Manual Control: 4-Room Environment (2x2) without door ---")

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 import numpy as np
-from reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
-from reveng.environment_generator.utils import (
+from papers.papers_code.reveng.src.reveng.environment_generator.rooms_minigrid import RoomsMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import (
     compute_optimal_actions_from_position,
     remove_door,
     replace_key_with_goal,

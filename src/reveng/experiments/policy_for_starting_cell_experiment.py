@@ -12,10 +12,10 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from reveng.agents import LLMAgent
-from reveng.agents.alpha_start_agent import AlphaStarAgent
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.agents import LLMAgent
+from papers.papers_code.reveng.src.reveng.agents.alpha_start_agent import AlphaStarAgent
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
 

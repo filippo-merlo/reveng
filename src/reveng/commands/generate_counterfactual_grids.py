@@ -13,18 +13,18 @@ from typing import Any, Literal
 
 from tqdm import tqdm
 
-from reveng.analysis.behavioural_analysis.analysis_utils import (
+from papers.papers_code.reveng.src.reveng.analysis.behavioural_analysis.analysis_utils import (
     ACTION_ID_TO_NAME,
     OptimalActionSet,
     compute_optimal_actions_from_text_grid,
 )
-from reveng.commands.get_trajectory.get_trajectory_fn import get_trajectory
-from reveng.commands.get_trajectory.get_trajectory_utils import (
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.get_trajectory_fn import get_trajectory
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.get_trajectory_utils import (
     upload_files_to_huggingface,
 )
-from reveng.commands.get_trajectory.rate_limiter import RateLimiter
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory.rate_limiter import RateLimiter
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
 

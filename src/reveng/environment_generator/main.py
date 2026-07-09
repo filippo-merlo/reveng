@@ -1,6 +1,6 @@
 import argparse
 
-from utils import manual_control, run_random_episodes
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import manual_control, run_random_episodes
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

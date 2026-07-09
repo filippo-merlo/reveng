@@ -287,6 +287,8 @@ class Simple2DNavigationEnv(MiniGridEnv):
         print(
             "*******************************************WARNING: YOU HAVE CALLED RESET METHOD. THIS WILL REGENERATE THE GRID!!!*******************************************"
         )
+        if "seed" in kwargs:
+            random.seed(kwargs["seed"])
         return super().reset(**kwargs)
 
     def safe_reset(self):

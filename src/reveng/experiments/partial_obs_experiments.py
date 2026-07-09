@@ -7,14 +7,14 @@ from typing import List, Tuple
 
 from tqdm import tqdm
 
-from reveng.agents.llm_agent import (
+from papers.papers_code.reveng.src.reveng.agents.llm_agent import (
     PartiallyObservableLLMAgent,
     PartiallyObservableWithChatHistoryLLMAgent,
     PartiallyObservableWithNoteLLMAgent,
 )
-from reveng.datatypes import CustomJSONEncoder
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.experiments.policy_elicitation import collect_trajectories
+from papers.papers_code.reveng.src.reveng.datatypes import CustomJSONEncoder
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.experiments.policy_elicitation import collect_trajectories
 
 
 def remove_already_processed_environments(

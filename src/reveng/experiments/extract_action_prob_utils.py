@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from scipy.special import softmax
 
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 # Define a constant for the action mapping for clarity and easy modification.
 ACTION_MAP = {"0": "LEFT", "1": "RIGHT", "2": "UP", "3": "DOWN"}

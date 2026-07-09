@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple
 import heapq
 
-from reveng.agents.agent_abc import Agent
-from reveng.agents.random_agent import RandomAgent
+from papers.papers_code.reveng.src.reveng.agents.agent_abc import Agent
+from papers.papers_code.reveng.src.reveng.agents.random_agent import RandomAgent
 from minigrid.minigrid_env import MiniGridEnv
 
 

@@ -51,7 +51,7 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass
 
-from reveng.datatypes import Step, Trajectory
+from papers.papers_code.reveng.src.reveng.datatypes import Step, Trajectory
 
 
 @dataclass

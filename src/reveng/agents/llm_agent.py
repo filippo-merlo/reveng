@@ -10,14 +10,14 @@ from minigrid.minigrid_env import MiniGridEnv
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from reveng.agents.agent_abc import Agent
-from reveng.agents.llm_templates import ActionResponse, ActionWithNoteResponse, Message
-from reveng.datatypes import Action
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.agents.agent_abc import Agent
+from papers.papers_code.reveng.src.reveng.agents.llm_templates import ActionResponse, ActionWithNoteResponse, Message
+from papers.papers_code.reveng.src.reveng.datatypes import Action
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FogOfWarTextWrapper,
     FullObservabilityTextWrapper,
 )
-from reveng.llm_interface import BaseLLMInterface
+from papers.papers_code.reveng.src.reveng.llm_interface import BaseLLMInterface
 
 logger = logging.getLogger(__name__)
 

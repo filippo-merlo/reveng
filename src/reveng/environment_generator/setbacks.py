@@ -2,7 +2,7 @@ import random
 
 from minigrid.minigrid_env import MiniGridEnv
 
-from reveng.environment_generator.utils import get_all_dead_ends
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import get_all_dead_ends
 
 
 class SetbackFactory:

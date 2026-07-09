@@ -10,9 +10,9 @@ from minigrid.minigrid_env import MiniGridEnv
 from PIL import Image
 from tqdm import tqdm
 
-from reveng.datatypes import Step, Trajectory
-from reveng.environment_generator.utils import clone_env, get_env_diagnostics
-from reveng.environment_generator.wrappers.text_obs_wrapper import FogOfWarTextWrapper
+from papers.papers_code.reveng.src.reveng.datatypes import Step, Trajectory
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import clone_env, get_env_diagnostics
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import FogOfWarTextWrapper
 
 
 def elicit_policy(

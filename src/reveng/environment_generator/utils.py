@@ -7,16 +7,16 @@ import pygame
 from minigrid.minigrid_env import MiniGridEnv
 from minigrid.wrappers import RGBImgObsWrapper
 
-import reveng.agents as agents
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.environment_generator.wrappers.rgb_obs_wrappers import (
+import papers.papers_code.reveng.src.reveng.agents as agents
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.rgb_obs_wrappers import (
     OmnidirectionalFogOfWarRGBImgObsWrapper,
 )
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FogOfWarTextWrapper,
     FullObservabilityTextWrapper,
 )
-from reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
+from papers.papers_code.reveng.src.reveng.trajectory_generator.trajectory_generator import generate_one_trajectory
 
 
 class ObsWrapperRegistry:

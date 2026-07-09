@@ -7,7 +7,7 @@ import numpy as np
 from gymnasium.spaces import Text
 from minigrid.minigrid_env import MiniGridEnv
 
-from reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.fog_of_war import FogOfWarWrapper
 
 # Default configuration for cells. This can be overridden at initialization.
 DEFAULT_CELLS_CONFIG = {

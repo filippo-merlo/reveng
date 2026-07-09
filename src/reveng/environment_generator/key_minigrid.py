@@ -2,7 +2,7 @@ import random
 from collections import deque
 from minigrid.core.grid import Grid
 from minigrid.core.world_object import Goal, Wall, Key
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
 
 
 class Key2PathMinigridEnv(Simple2DNavigationEnv):
@@ -396,7 +396,7 @@ class Key2PathMinigridEnv(Simple2DNavigationEnv):
 
 if __name__ == "__main__":
     import pygame
-    from reveng.environment_generator.wrappers.text_obs_wrapper import (
+    from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
         FullObservabilityTextWrapper,
     )
 

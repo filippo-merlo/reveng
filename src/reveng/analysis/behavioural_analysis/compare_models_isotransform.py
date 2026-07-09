@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from reveng.analysis.behavioural_analysis.analysis_utils import (
+from papers.papers_code.reveng.src.reveng.analysis.behavioural_analysis.analysis_utils import (
     TRANSFORM_TYPES,
     IsotransformGridMetadata,
     TransformRegressionResult,
@@ -438,7 +438,7 @@ def process_baseline_grids(
     Returns:
         List of all cell metric dictionaries
     """
-    from reveng.analysis.behavioural_analysis.analysis_utils import load_metadata_batch
+    from papers.papers_code.reveng.src.reveng.analysis.behavioural_analysis.analysis_utils import load_metadata_batch
 
     dataset_keys = set(baseline_dataset.keys())
     total_batches = (len(metadata_files) + batch_size - 1) // batch_size

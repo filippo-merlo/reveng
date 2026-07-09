@@ -2,7 +2,7 @@ from typing import Any, Optional, Tuple
 
 from minigrid.minigrid_env import MiniGridEnv
 
-from reveng.agents.agent_abc import Agent
+from papers.papers_code.reveng.src.reveng.agents.agent_abc import Agent
 
 
 class RandomAgent(Agent):

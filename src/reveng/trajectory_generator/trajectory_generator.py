@@ -12,8 +12,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from reveng.agents.agent_abc import Agent
-from reveng.datatypes import Step, Trajectory
+from papers.papers_code.reveng.src.reveng.agents.agent_abc import Agent
+from papers.papers_code.reveng.src.reveng.datatypes import Step, Trajectory
 
 
 def _save_trajectory_to_json(

@@ -12,9 +12,9 @@ from typing import List, Tuple
 
 from tqdm import tqdm
 
-from reveng.agents import LLMAgent
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.experiments.policy_elicitation import (
+from papers.papers_code.reveng.src.reveng.agents import LLMAgent
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.experiments.policy_elicitation import (
     elicit_policy,
 )
 

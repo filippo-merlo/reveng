@@ -7,14 +7,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from reveng.agents.llm_agent import LLMAgent
-from reveng.datatypes import CustomJSONEncoder, Trajectory
-from reveng.environment_generator.coin_minigrid import CoinMinigridEnv
-from reveng.environment_generator.wrappers.text_obs_wrapper import (
+from papers.papers_code.reveng.src.reveng.agents.llm_agent import LLMAgent
+from papers.papers_code.reveng.src.reveng.datatypes import CustomJSONEncoder, Trajectory
+from papers.papers_code.reveng.src.reveng.environment_generator.coin_minigrid import CoinMinigridEnv
+from papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper import (
     FullObservabilityTextWrapper,
 )
-from reveng.experiments.policy_elicitation import generate_one_trajectory
-from reveng.environment_generator.utils import remove_coin, clone_env
+from papers.papers_code.reveng.src.reveng.experiments.policy_elicitation import generate_one_trajectory
+from papers.papers_code.reveng.src.reveng.environment_generator.utils import remove_coin, clone_env
 
 
 # Default configuration parameters

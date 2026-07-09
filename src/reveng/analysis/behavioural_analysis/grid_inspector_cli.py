@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch
 from tqdm import tqdm
 
-from reveng.analysis.behavioural_analysis.analysis_utils import (
+from papers.papers_code.reveng.src.reveng.analysis.behavioural_analysis.analysis_utils import (
     ActionDist,
     GridMetadata,
     compute_grid_mean_cross_entropy,

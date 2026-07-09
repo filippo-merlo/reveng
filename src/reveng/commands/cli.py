@@ -4,12 +4,12 @@ import logging
 
 import tyro
 
-from reveng.commands.generate_counterfactual_grids import (
+from papers.papers_code.reveng.src.reveng.commands.generate_counterfactual_grids import (
     generate_counterfactual_grids,
     generate_counterfactual_grids_all_pairs,
     get_counterfactual_trajectories_all_pairs,
 )
-from reveng.commands.get_trajectory import (
+from papers.papers_code.reveng.src.reveng.commands.get_trajectory import (
     get_trajectories,
     get_trajectories_key_door_env,
     get_trajectories_multiple_per_grid,

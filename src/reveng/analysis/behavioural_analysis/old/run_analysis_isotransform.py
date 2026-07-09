@@ -16,7 +16,7 @@ import os, sys, glob
 sys.path.append(os.path.join("C:/Users\hchen\Dropbox/reveng", "src"))
 # sys.path.append(os.path.join('D:/Phoebe\Dropbox/reveng', "src"))
 
-import reveng
+import papers.papers_code.reveng.src.reveng as reveng
 
 basepath = "C:/Users\hchen\Dropbox/reveng"
 

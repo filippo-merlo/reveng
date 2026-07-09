@@ -6,11 +6,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import reveng.agents as agents
-import reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
-import reveng.trajectory_generator.trajectory_generator as traj_gen
-from reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
-from reveng.llm_interface import BaseLLMInterface
+import papers.papers_code.reveng.src.reveng.agents as agents
+import papers.papers_code.reveng.src.reveng.environment_generator.wrappers.text_obs_wrapper as text_wrappers
+import papers.papers_code.reveng.src.reveng.trajectory_generator.trajectory_generator as traj_gen
+from papers.papers_code.reveng.src.reveng.environment_generator.custom_minigrid import Simple2DNavigationEnv
+from papers.papers_code.reveng.src.reveng.llm_interface import BaseLLMInterface
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -114,7 +114,7 @@ if __name__ == "__main__":
             trajectory_observation = po_observation_str
         elif args.agent_type == "llm":
             print(f"Generating a trajectory from LLM: {args.llm_model}")
-            from reveng.agents.llm_agent import LLMAgent
+            from papers.papers_code.reveng.src.reveng.agents.llm_agent import LLMAgent
 
             agent = LLMAgent(model_name=args.llm_model, name="LLM Agent")
             # Use full observability for LLM (so LLM sees complete grid)

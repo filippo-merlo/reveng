@@ -9,7 +9,7 @@ import pickle
 import sys
 
 sys.path.append(os.path.join("C:/users/hchen/dropbox/reveng", "src"))
-from reveng.environment_generator.env_transformations import (
+from papers.papers_code.reveng.src.reveng.environment_generator.env_transformations import (
     ReflectEnv,
     RotateEnv,
     StartGoalSwap,

@@ -4,7 +4,7 @@ from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
-from reveng.datatypes import Action
+from papers.papers_code.reveng.src.reveng.datatypes import Action
 
 
 class ActionResponse(BaseModel):
